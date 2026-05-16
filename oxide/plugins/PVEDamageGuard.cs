@@ -15,7 +15,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("PVE Damage Guard", "Gabriel Dungan (DunganSoft Technologies)", "1.7.3")]
+    [Info("PVE Damage Guard", "Gabriel Dungan (DunganSoft Technologies)", "1.8.0")]
     [Description("Future-proof NPC classifier, declarative rule matrix, per-attacker/per-victim damage scaling, time-of-day modifiers, ZoneManager / RaidableBases / Convoy / Armored Train context switching, reflect-as-a-service, Discord webhook output, Damage Control config import, preset configurations, config validation, classification cache, hook timing telemetry, Carbon framework support, in-game CUI admin panel with live-streaming Logging and paginated History tabs, per-player damage statistics, and per-event context overrides for PVE Rust servers.")]
     public class PVEDamageGuard : CovalencePlugin
     {
@@ -92,6 +92,13 @@ namespace Oxide.Plugins
         // Per-player History tab pagination state (v1.7), zero-based page index.
         private readonly Dictionary<ulong, int> _uiHistoryPage = new Dictionary<ulong, int>();
         private const int HistoryRowsPerPage = 12;
+
+        // Per-player Rules tab selected context (v1.8).
+        private readonly Dictionary<ulong, string> _uiRulesContext = new Dictionary<ulong, string>();
+
+        // Custom NPC categories registered by other plugins (v1.8).
+        // Matchers run before the built-in ClassifySubtype checks; first match wins.
+        private readonly Dictionary<string, Func<BaseEntity, bool>> _registeredCategories = new Dictionary<string, Func<BaseEntity, bool>>();
 
         // CUI state (v1.6): track which players currently have the panel open and on which tab.
         private readonly Dictionary<ulong, string> _openPanels = new Dictionary<ulong, string>();
@@ -914,6 +921,40 @@ namespace Oxide.Plugins
             return action is AllowAction;
         }
 
+        // v1.8 - register a custom NPC category from another plugin.
+        // The matcher runs on every ClassifySubtype call until unregistered.
+        // First-match-wins among registered categories; registered matchers run BEFORE built-in
+        // type checks, so plugin authors can override our default classification (e.g. a Frontier
+        // mod can classify a scarecrow-prefab BaseNpc as "FrontierBandit" instead of "Zombie").
+        [HookMethod("API_RegisterCategory")]
+        public bool API_RegisterCategory(string name, Func<BaseEntity, bool> matcher)
+        {
+            if (string.IsNullOrEmpty(name) || matcher == null) return false;
+            _registeredCategories[name] = matcher;
+            _classifyCache.Clear(); // existing cache entries may now classify differently
+            Puts($"Custom NPC category registered: '{name}'");
+            return true;
+        }
+
+        [HookMethod("API_UnregisterCategory")]
+        public bool API_UnregisterCategory(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return false;
+            bool removed = _registeredCategories.Remove(name);
+            if (removed)
+            {
+                _classifyCache.Clear();
+                Puts($"Custom NPC category unregistered: '{name}'");
+            }
+            return removed;
+        }
+
+        [HookMethod("API_ListCustomCategories")]
+        public string[] API_ListCustomCategories()
+        {
+            return _registeredCategories.Keys.ToArray();
+        }
+
         [HookMethod("API_GetPlayerStats")]
         public Dictionary<string, object> API_GetPlayerStats(BasePlayer player)
         {
@@ -1529,6 +1570,23 @@ namespace Oxide.Plugins
 
         private string ClassifySubtypeImpl(BaseEntity entity)
         {
+            // v1.8 - custom NPC categories registered by other plugins.
+            // Run first so plugin authors can override built-in classifications.
+            if (_registeredCategories.Count > 0)
+            {
+                foreach (var entry in _registeredCategories)
+                {
+                    try
+                    {
+                        if (entry.Value(entity)) return entry.Key;
+                    }
+                    catch (Exception e)
+                    {
+                        PrintWarning($"Custom category matcher '{entry.Key}' threw: {e.Message}");
+                    }
+                }
+            }
+
             string prefab = entity.ShortPrefabName ?? "";
 
             if (entity is BaseHelicopter) return "PatrolHelicopter";
@@ -1908,7 +1966,7 @@ namespace Oxide.Plugins
                 case "status":  BuildStatusTabContent(container); break;
                 case "logging": BuildLoggingTabContent(container, player); break;
                 case "history": BuildHistoryTabContent(container, player); break;
-                case "rules":   BuildPlaceholderTabContent(container, "Rules",   "Rule matrix browser arrives in v1.8. For now, use /pdg context and edit the JSON config."); break;
+                case "rules":   BuildRulesTabContent(container, player); break;
                 case "scaling": BuildPlaceholderTabContent(container, "Scaling", "Sliders for live scaling arrive in v1.9. For now, use /pdg scale <type> <mult>."); break;
             }
 
@@ -2149,6 +2207,198 @@ namespace Oxide.Plugins
             return s.Substring(0, max - 1) + ".";
         }
 
+        // v1.8 - Rules tab: read-only browser for the rule matrix
+        private void BuildRulesTabContent(CuiElementContainer container, BasePlayer player)
+        {
+            if (!_ruleMatrixEnabled || _config.RuleMatrix?.Contexts == null || _config.RuleMatrix.Contexts.Count == 0)
+            {
+                container.Add(new CuiLabel
+                {
+                    Text = { Text = "Rules Browser", FontSize = 18, Align = TextAnchor.MiddleCenter, Color = CuiAccentColor },
+                    RectTransform = { AnchorMin = "0 0.7", AnchorMax = "1 0.85" },
+                }, CuiContentPanel);
+                container.Add(new CuiLabel
+                {
+                    Text = { Text = "<color=#888888>Rule matrix is disabled. Set RuleMatrix.Enabled=true in config and reload to use this tab.</color>",
+                             FontSize = 13, Align = TextAnchor.MiddleCenter, Color = CuiMutedTextColor },
+                    RectTransform = { AnchorMin = "0.1 0.45", AnchorMax = "0.9 0.65" },
+                }, CuiContentPanel);
+                return;
+            }
+
+            // Resolve active context (where the admin is standing) and currently-selected viewing context
+            string activeContext;
+            try { activeContext = ResolveContext(player.transform != null ? player.transform.position : Vector3.zero, player); }
+            catch { activeContext = _config.RuleMatrix.DefaultContext; }
+
+            string selected;
+            if (!_uiRulesContext.TryGetValue(player.userID, out selected)
+                || string.IsNullOrEmpty(selected)
+                || !_config.RuleMatrix.Contexts.ContainsKey(selected))
+            {
+                selected = activeContext ?? _config.RuleMatrix.DefaultContext;
+                if (selected == null || !_config.RuleMatrix.Contexts.ContainsKey(selected))
+                    selected = _config.RuleMatrix.Contexts.Keys.First();
+                _uiRulesContext[player.userID] = selected;
+            }
+
+            // Header line 1: active context at player position
+            container.Add(new CuiLabel
+            {
+                Text = { Text = $"<color=#ee7d5a>Active at your position:</color> {activeContext ?? "<none>"}",
+                         FontSize = 13, Align = TextAnchor.MiddleLeft, Color = CuiTextColor },
+                RectTransform = { AnchorMin = "0.02 0.95", AnchorMax = "0.98 0.99" },
+            }, CuiContentPanel);
+
+            // Header line 2: inheritance chain for selected context
+            var chain = ComputeInheritsChain(selected);
+            container.Add(new CuiLabel
+            {
+                Text = { Text = $"<color=#a0a0a0>Viewing:</color> {string.Join(" → ", chain)}",
+                         FontSize = 11, Align = TextAnchor.MiddleLeft, Color = CuiMutedTextColor },
+                RectTransform = { AnchorMin = "0.02 0.91", AnchorMax = "0.98 0.94" },
+            }, CuiContentPanel);
+
+            // Left column: clickable list of contexts
+            float ctxYTop = 0.88f;
+            float ctxRowH = 0.045f;
+            int ctxIdx = 0;
+            foreach (var ctxName in _config.RuleMatrix.Contexts.Keys)
+            {
+                bool isSelected = string.Equals(ctxName, selected, StringComparison.Ordinal);
+                bool isActive = string.Equals(ctxName, activeContext, StringComparison.Ordinal);
+                var label = isActive ? $"★ {ctxName}" : ctxName;
+                container.Add(new CuiButton
+                {
+                    Button = { Color = isSelected ? CuiAccentDim : CuiButtonColor,
+                               Command = $"pdgui.rulesctx {ctxName}" },
+                    RectTransform = { AnchorMin = $"0.02 {ctxYTop - ctxRowH * (ctxIdx + 1)}",
+                                      AnchorMax = $"0.24 {ctxYTop - ctxRowH * ctxIdx}" },
+                    Text = { Text = label, FontSize = 11, Align = TextAnchor.MiddleLeft, Color = CuiTextColor },
+                }, CuiContentPanel);
+                ctxIdx++;
+            }
+
+            // Right column: rules in selected context, with inherited rules below
+            if (_config.RuleMatrix.Contexts.TryGetValue(selected, out var ctxCfg) && ctxCfg != null)
+            {
+                var directRules = ctxCfg.Rules ?? new Dictionary<string, string>();
+                var inheritedRules = CollectInheritedRules(selected);
+                // Remove overridden inherited rules
+                var inheritedOnly = new Dictionary<string, string>();
+                foreach (var kv in inheritedRules)
+                    if (!directRules.ContainsKey(kv.Key))
+                        inheritedOnly[kv.Key] = kv.Value;
+
+                float ruleYTop = 0.88f;
+                float ruleRowH = 0.035f;
+                int ri = 0;
+                if (directRules.Count > 0)
+                {
+                    container.Add(new CuiLabel
+                    {
+                        Text = { Text = $"<color=#ee7d5a>Direct rules in '{selected}':</color>", FontSize = 12,
+                                 Align = TextAnchor.MiddleLeft, Color = CuiAccentColor },
+                        RectTransform = { AnchorMin = $"0.26 {ruleYTop - ruleRowH * (ri + 1)}",
+                                          AnchorMax = $"0.98 {ruleYTop - ruleRowH * ri}" },
+                    }, CuiContentPanel);
+                    ri++;
+                    foreach (var kv in directRules)
+                    {
+                        AddRuleLineToCui(container, kv.Key, kv.Value, ruleYTop, ruleRowH, ri++, false);
+                    }
+                }
+
+                if (inheritedOnly.Count > 0)
+                {
+                    ri++; // gap
+                    container.Add(new CuiLabel
+                    {
+                        Text = { Text = "<color=#888888>Inherited rules:</color>", FontSize = 12,
+                                 Align = TextAnchor.MiddleLeft, Color = CuiMutedTextColor },
+                        RectTransform = { AnchorMin = $"0.26 {ruleYTop - ruleRowH * (ri + 1)}",
+                                          AnchorMax = $"0.98 {ruleYTop - ruleRowH * ri}" },
+                    }, CuiContentPanel);
+                    ri++;
+                    foreach (var kv in inheritedOnly)
+                    {
+                        AddRuleLineToCui(container, kv.Key, kv.Value, ruleYTop, ruleRowH, ri++, true);
+                    }
+                }
+
+                if (directRules.Count == 0 && inheritedOnly.Count == 0)
+                {
+                    container.Add(new CuiLabel
+                    {
+                        Text = { Text = "<color=#888888>This context has no rules.</color>", FontSize = 12,
+                                 Align = TextAnchor.MiddleLeft, Color = CuiMutedTextColor },
+                        RectTransform = { AnchorMin = $"0.26 0.84", AnchorMax = $"0.98 0.88" },
+                    }, CuiContentPanel);
+                }
+            }
+        }
+
+        private void AddRuleLineToCui(CuiElementContainer container, string ruleKey, string actionStr,
+                                       float topY, float rowH, int idx, bool inherited)
+        {
+            var color = GetActionColor(actionStr);
+            var keyText = inherited ? $"<color=#888888>{Escape(ruleKey)}</color>" : Escape(ruleKey);
+            var line = $"{keyText}   <color={color}>{Escape(actionStr)}</color>";
+            container.Add(new CuiLabel
+            {
+                Text = { Text = line, FontSize = 11, Align = TextAnchor.MiddleLeft, Color = CuiTextColor },
+                RectTransform = { AnchorMin = $"0.26 {topY - rowH * (idx + 1)}",
+                                  AnchorMax = $"0.98 {topY - rowH * idx}" },
+            }, CuiContentPanel);
+        }
+
+        private string GetActionColor(string actionStr)
+        {
+            if (string.IsNullOrWhiteSpace(actionStr)) return "#aaaaaa";
+            var lower = actionStr.Trim().ToLowerInvariant();
+            if (lower == "allow") return "#5acd5a";          // green
+            if (lower == "block") return "#cd5a5a";          // red
+            if (lower.StartsWith("reflect")) return "#ee7d5a"; // coral
+            if (lower.StartsWith("scale")) return "#6bb5ee";   // cyan
+            return "#aaaaaa";
+        }
+
+        private List<string> ComputeInheritsChain(string contextName)
+        {
+            var chain = new List<string>();
+            if (_config.RuleMatrix?.Contexts == null) return chain;
+            var visited = new HashSet<string>();
+            var name = contextName;
+            while (!string.IsNullOrEmpty(name) && visited.Add(name))
+            {
+                chain.Add(name);
+                if (!_config.RuleMatrix.Contexts.TryGetValue(name, out var ctx) || ctx == null) break;
+                name = ctx.Inherits;
+            }
+            return chain;
+        }
+
+        private Dictionary<string, string> CollectInheritedRules(string contextName)
+        {
+            var result = new Dictionary<string, string>();
+            if (_config.RuleMatrix?.Contexts == null) return result;
+            var visited = new HashSet<string>();
+            var name = contextName;
+            bool first = true;
+            while (!string.IsNullOrEmpty(name) && visited.Add(name))
+            {
+                if (!_config.RuleMatrix.Contexts.TryGetValue(name, out var ctx) || ctx == null) break;
+                if (!first && ctx.Rules != null)
+                {
+                    foreach (var kv in ctx.Rules)
+                        if (!result.ContainsKey(kv.Key)) result[kv.Key] = kv.Value;
+                }
+                first = false;
+                name = ctx.Inherits;
+            }
+            return result;
+        }
+
         private void HidePanel(BasePlayer player)
         {
             if (player == null) return;
@@ -2221,6 +2471,20 @@ namespace Oxide.Plugins
             if (!Enum.TryParse<LogLevel>(arg.Args[0], true, out var level)) return;
             _uiLogFilter[p.userID] = level;
             ShowPanel(p, "logging");
+        }
+
+        // v1.8 - select a context in the Rules tab
+        [ConsoleCommand("pdgui.rulesctx")]
+        private void CcmdPdguiRulesCtx(ConsoleSystem.Arg arg)
+        {
+            var p = arg.Player();
+            if (p == null) return;
+            if (!HasUiPerm(p)) return;
+            if (arg.Args == null || arg.Args.Length == 0) return;
+            var name = arg.Args[0];
+            if (_config.RuleMatrix?.Contexts != null && _config.RuleMatrix.Contexts.ContainsKey(name))
+                _uiRulesContext[p.userID] = name;
+            ShowPanel(p, "rules");
         }
 
         // v1.7 - history page navigation from History tab
@@ -2693,6 +2957,8 @@ namespace Oxide.Plugins
                 case "ui":       return Lang("HelpUi");
                 case "close":    return Lang("HelpClose");
                 case "stats":    return Lang("HelpStats");
+                case "rules":    return Lang("HelpRules");
+                case "categories": return Lang("HelpCategories");
                 case "help":     return Lang("HelpHelp");
                 default:         return string.Format(Lang("HelpUnknown"), subcommand);
             }
@@ -2967,6 +3233,8 @@ namespace Oxide.Plugins
                 case "ui":      CmdUi(player); break;
                 case "close":   CmdUiClose(player); break;
                 case "stats":   CmdStats(player, args); break;
+                case "rules":   CmdRules(player, args); break;
+                case "categories": CmdCategories(player); break;
                 default:
                     player.Reply(Lang("UsageRoot", player.Id));
                     break;
@@ -3139,6 +3407,63 @@ namespace Oxide.Plugins
             var bp = player.Object as BasePlayer;
             if (bp == null) return;
             HidePanel(bp);
+        }
+
+        // v1.8 - list rules from a context (or all contexts) in chat
+        private void CmdRules(IPlayer player, string[] args)
+        {
+            if (!_ruleMatrixEnabled || _config.RuleMatrix?.Contexts == null)
+            {
+                player.Reply(Lang("RulesMatrixDisabled", player.Id));
+                return;
+            }
+            string ctxName = args.Length >= 2 ? args[1] : null;
+            if (string.IsNullOrEmpty(ctxName))
+            {
+                // List all contexts
+                var names = _config.RuleMatrix.Contexts.Keys.ToArray();
+                player.Reply(string.Format(Lang("RulesContextList", player.Id),
+                    string.Join(", ", names),
+                    _config.RuleMatrix.DefaultContext));
+                return;
+            }
+            if (!_config.RuleMatrix.Contexts.TryGetValue(ctxName, out var ctx))
+            {
+                player.Reply(string.Format(Lang("RulesContextNotFound", player.Id), ctxName));
+                return;
+            }
+            var lines = new List<string>();
+            lines.Add(string.Format(Lang("RulesContextHeader", player.Id),
+                ctxName, string.Join(" -> ", ComputeInheritsChain(ctxName))));
+            if (ctx.Rules != null && ctx.Rules.Count > 0)
+            {
+                lines.Add(Lang("RulesDirectHeader", player.Id));
+                foreach (var kv in ctx.Rules)
+                    lines.Add($"  {kv.Key}  ->  {kv.Value}");
+            }
+            var inherited = CollectInheritedRules(ctxName);
+            if (ctx.Rules != null)
+                foreach (var key in ctx.Rules.Keys) inherited.Remove(key);
+            if (inherited.Count > 0)
+            {
+                lines.Add(Lang("RulesInheritedHeader", player.Id));
+                foreach (var kv in inherited)
+                    lines.Add($"  {kv.Key}  ->  {kv.Value}");
+            }
+            player.Reply(string.Join("\n", lines));
+        }
+
+        // v1.8 - list custom NPC categories registered by other plugins
+        private void CmdCategories(IPlayer player)
+        {
+            if (_registeredCategories.Count == 0)
+            {
+                player.Reply(Lang("CategoriesNone", player.Id));
+                return;
+            }
+            player.Reply(string.Format(Lang("CategoriesList", player.Id),
+                _registeredCategories.Count,
+                string.Join(", ", _registeredCategories.Keys)));
         }
 
         private void CmdStats(IPlayer player, string[] args)
@@ -3567,6 +3892,16 @@ namespace Oxide.Plugins
                 ["HelpUi"]          = "/pdg ui - open the in-game CUI admin panel. Requires pvedamageguard.admin permission.",
                 ["HelpClose"]       = "/pdg close - close the in-game CUI panel for you.",
                 ["UiOnlyInGame"]    = "/pdg ui must be run by an in-game player.",
+                ["HelpRules"]       = "/pdg rules [context] - list contexts (no arg) or print direct + inherited rules of one context.",
+                ["HelpCategories"]  = "/pdg categories - list custom NPC categories registered by other plugins via API_RegisterCategory.",
+                ["RulesMatrixDisabled"] = "Rule matrix is disabled (RuleMatrix.Enabled=false in config). No rules to browse.",
+                ["RulesContextList"]    = "Available contexts: {0}. Default: '{1}'. Use /pdg rules <name> for details.",
+                ["RulesContextNotFound"] = "Context '{0}' not found in RuleMatrix.Contexts.",
+                ["RulesContextHeader"]  = "Context '{0}'. Inheritance chain: {1}",
+                ["RulesDirectHeader"]   = "Direct rules:",
+                ["RulesInheritedHeader"] = "Inherited rules (not overridden):",
+                ["CategoriesNone"]      = "No custom NPC categories registered. Other plugins can register via API_RegisterCategory(string, Func<BaseEntity,bool>).",
+                ["CategoriesList"]      = "{0} custom NPC categor(y/ies) registered: {1}",
                 ["HelpStats"]       = "/pdg stats [player] - show damage stats. No arg = your stats. Admin: pass SteamID or partial name to look up another player.",
                 ["StatsOnlyInGame"] = "/pdg stats with no arg must be run by an in-game player.",
                 ["StatsNotFound"]   = "Player '{0}' not found.",

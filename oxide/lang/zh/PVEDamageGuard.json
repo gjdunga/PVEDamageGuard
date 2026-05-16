@@ -90,5 +90,15 @@
   "StatsNone":      "尚未记录 {0} 的统计。",
   "StatsReport":    "{0} 的统计:\n  对玩家造成的伤害: {1:F1}   来自玩家: {2:F1}   来自 NPC: {3:F1}\n  反射回我的伤害: {4:F1} ({5} 次反射)\n  击杀 NPC: {6}   PvP 死亡: {7}",
   "TestStructureAuth": "您对此建筑的授权: {0}. OwnerID: {1}.",
+  "HelpRules":      "/pdg rules [上下文] - 列出上下文 (无参数) 或显示一个上下文的直接 + 继承规则。",
+  "HelpCategories": "/pdg categories - 列出其他插件通过 API_RegisterCategory 注册的自定义 NPC 类别。",
+  "RulesMatrixDisabled": "规则矩阵已禁用 (RuleMatrix.Enabled=false)。没有可浏览的规则。",
+  "RulesContextList":    "可用上下文: {0}. 默认: '{1}'. 使用 /pdg rules <名称> 查看详情。",
+  "RulesContextNotFound": "RuleMatrix.Contexts 中未找到上下文 '{0}'。",
+  "RulesContextHeader":  "上下文 '{0}'。继承链: {1}",
+  "RulesDirectHeader":   "直接规则:",
+  "RulesInheritedHeader": "继承规则 (未被覆盖):",
+  "CategoriesNone":      "未注册自定义 NPC 类别。其他插件可通过 API_RegisterCategory 注册。",
+  "CategoriesList":      "已注册 {0} 个自定义 NPC 类别: {1}",
   "StatusBlock":    "PVE Damage Guard v{0}\n  反射: {1} ({2:F2}x), 无反射时阻挡: {3}, 队友: {4}\n  NPC->玩家 默认: {5:F2}, NPC->结构 默认: {6:F2}, 陷阱视为PvP: {7}\n  日志: {8} (文件={9}), 让步TruePVE: {10}, Discord webhook: {22}\n  功能: TOD={11}, VictimSubtype={12}, BuildingGrade={13}, PerAttackerStruct={14}, RuleMatrix={15}\n  时段: {16} ({17}), 事件: {18} 实体 / {20} 圆顶 / {21} 全局, 配置问题: {19}\n  命令: /pdg reload | log | logfile | scale | hour | context | history | test | preset | import | validate | events | webhook | timing | selftest | cache | help"
 }

@@ -2,6 +2,46 @@
 
 All notable changes to PVEDamageGuard are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning is [SemVer](https://semver.org/).
 
+## [1.8.0] - 2026-05-16
+
+Third CUI slice. Rules tab becomes a functional read-only browser; custom NPC category registration API lets third-party plugins extend the classifier. No breaking changes.
+
+### Added
+
+- **Rules CUI tab** - tree-style read-only browser for the rule matrix.
+  - Header shows the active context resolved at your current position (the one PVEDamageGuard would actually use right now) plus the inheritance chain (`A → B → Default`) of the currently-viewed context.
+  - Left column lists every context. The active context is marked with a ★. Click any context to switch the viewing pane.
+  - Right column shows "Direct rules" (defined in the selected context) above "Inherited rules" (defined in ancestor contexts and not overridden in this one). Overridden rules are hidden so you see what would actually apply.
+  - Action types are color-coded: green for `allow`, red for `block`, coral for `reflect:N`, cyan for `scale:N` or `scale:{...}`.
+  - Inherited rule names render in muted gray so direct vs inherited is visible at a glance.
+  - When the rule matrix is disabled (`RuleMatrix.Enabled=false`), the tab shows a one-line message pointing at the config field instead of trying to render an empty view.
+
+- **`API_RegisterCategory(string name, Func<BaseEntity, bool> matcher)`** - lets other plugins register custom NPC category names backed by their own classification logic. Use case: a Frontier mod registering `"FrontierBandit"` for its custom NPCs that PVEDamageGuard would otherwise classify as the generic `"Zombie"`. Registered names appear in `/pdg test` output and are valid keys in rule matrix `"AttackerCat -> VictimCat"` strings.
+  - Matchers run **before** the built-in `ClassifySubtype` checks. First registered match wins. This lets plugin authors override our default classification intentionally.
+  - The classification cache is automatically cleared on register/unregister so the new matcher takes effect on the next hit.
+  - Matchers are called inside try/catch; if a matcher throws, the offending one is reported as a `PrintWarning` and skipped (the others still run).
+
+- **`API_UnregisterCategory(string name)`** - removes a previously registered matcher. Returns `true` if a category was removed.
+
+- **`API_ListCustomCategories()`** - returns `string[]` of currently registered names. Useful for plugin authors to verify their registration worked.
+
+- **`/pdg rules [context]`** chat command - text-mode alternative to the Rules CUI tab. No argument lists all context names plus the default; with an argument prints that context's direct + inherited rules.
+
+- **`/pdg categories`** chat command - lists custom NPC categories registered by other plugins. Empty if none registered.
+
+- **`pdgui.rulesctx <name>`** console command - handles Rules tab context-switch button presses.
+
+### Changed
+
+- `ClassifySubtypeImpl` now runs the custom-category matchers first, before the built-in type/prefab checks. No behavior change for servers that haven't registered any custom categories (the matcher dict is empty and the loop is skipped).
+- Rules tab placeholder text in v1.6/v1.7 is replaced with the functional implementation.
+
+### Notes
+
+- Custom category names are case-sensitive and become part of your rule matrix keys (`"FrontierBandit -> RealPlayer"`). Keep them simple and stable; renaming a category later means updating every rule that references it.
+- The classifier cache is cleared whenever a custom category is registered or unregistered, so register-at-OnServerInitialized and don't churn the registration during gameplay if you can help it (each register/unregister forces re-classification on the next hit per entity).
+- Rules tab is read-only in v1.8. Editing the rule matrix from the CUI is v1.9 territory; for now, edit `oxide/config/PVEDamageGuard.json` and `/pdg reload`.
+
 ## [1.7.3] - 2026-05-16
 
 Robustness release: replaces long descriptive JSON property names with short safe ones. Auto-migrates existing v1.0-v1.7.2 configs.

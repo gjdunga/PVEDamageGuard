@@ -113,6 +113,56 @@ if (pvpHere) ShowPvpIndicator(player);
 
 This is the integration point for RaidableBases, Convoy, Backpacks-on-death, and any plugin that needs to know whether PvP applies at a location.
 
+### API_RegisterCategory(string name, Func<BaseEntity, bool> matcher) -> bool (v1.8.0)
+
+Registers a custom NPC category from another plugin. When the matcher returns `true` for an entity, PVEDamageGuard's classifier returns the given name from `ClassifySubtype()`. Registered names appear in `/pdg test` output and are valid keys in rule matrix `"AttackerCat -> VictimCat"` strings.
+
+Matchers run BEFORE the built-in `ClassifySubtype` checks. First match wins. This lets plugin authors override built-in classifications intentionally (e.g. classify a `BaseNpc` with `scarecrow` in its prefab as `"FrontierBandit"` instead of the built-in `"Zombie"`).
+
+```csharp
+[PluginReference] private Plugin PVEDamageGuard;
+
+void OnServerInitialized()
+{
+    PVEDamageGuard?.Call("API_RegisterCategory", "FrontierBandit",
+        (Func<BaseEntity, bool>)(entity =>
+        {
+            if (!(entity is BaseNpc)) return false;
+            var prefab = entity.ShortPrefabName ?? "";
+            return prefab.Contains("frontier_bandit");
+        }));
+}
+```
+
+The classification cache is automatically cleared on register so the new matcher takes effect on the next hit. Matchers are called in try/catch; throwing matchers are reported and skipped.
+
+Returns `true` if the matcher was registered, `false` if the name is empty or the matcher is null.
+
+### API_UnregisterCategory(string name) -> bool (v1.8.0)
+
+Removes a previously registered category matcher. Returns `true` if a category was removed, `false` if no category with that name was registered.
+
+```csharp
+void Unload()
+{
+    PVEDamageGuard?.Call("API_UnregisterCategory", "FrontierBandit");
+}
+```
+
+The classification cache is automatically cleared on unregister.
+
+### API_ListCustomCategories() -> string[] (v1.8.0)
+
+Returns the names of all currently-registered custom categories. Useful for verifying that your registration worked.
+
+```csharp
+var names = PVEDamageGuard?.Call("API_ListCustomCategories") as string[];
+if (names != null && !names.Contains("FrontierBandit"))
+{
+    PrintWarning("FrontierBandit category did not register correctly");
+}
+```
+
 ### API_IsAllowed(BaseEntity attacker, BaseEntity victim) -> bool (v1.2.0)
 
 Returns `true` unless the rule matrix would `block` this attacker-victim pairing in the victim's current context. Useful for plugins that want to short-circuit their own behavior based on the centralized PVE rules.

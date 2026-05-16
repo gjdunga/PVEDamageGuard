@@ -58,7 +58,7 @@ Other reference docs: [configuration.md](docs/configuration.md), [commands.md](d
 
 ## Status
 
-**v1.7.3** - robustness: replaced 42 long descriptive JSON property names with short safe ones (encoding-safe, no embedded commas/parens). Auto-migrates existing configs. v1.7.1 / v1.7.2 fixes still included (foreign-structure reflect, `authorizedPlayers` API drift).
+**v1.8.0** - third CUI slice. Rules tab becomes a read-only rule-matrix browser with inheritance visualization and color-coded actions. New `API_RegisterCategory` lets third-party plugins extend the NPC classifier. `/pdg rules` and `/pdg categories` text alternatives.
 
 See [CHANGELOG.md](CHANGELOG.md) for version history and [ROADMAP.md](ROADMAP.md) for planned features.
 

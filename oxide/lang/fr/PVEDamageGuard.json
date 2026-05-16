@@ -90,5 +90,15 @@
   "StatsNone":      "Aucune statistique enregistrée pour {0}.",
   "StatsReport":    "Stats de {0} :\n  Dégâts aux joueurs : {1:F1}   Reçus des joueurs : {2:F1}   Reçus des PNJ : {3:F1}\n  Dégâts réfléchis : {4:F1} ({5} réflexions)\n  PNJ tués : {6}   Morts PvP : {7}",
   "TestStructureAuth": "Votre autorisation sur cette structure : {0}. OwnerID : {1}.",
+  "HelpRules":      "/pdg rules [contexte] - lister les contextes (sans argument) ou afficher les règles directes + héritées d'un contexte.",
+  "HelpCategories": "/pdg categories - lister les catégories PNJ personnalisées enregistrées via API_RegisterCategory.",
+  "RulesMatrixDisabled": "La matrice de règles est désactivée (RuleMatrix.Enabled=false). Aucune règle à parcourir.",
+  "RulesContextList":    "Contextes disponibles : {0}. Par défaut : '{1}'. Utilisez /pdg rules <nom> pour les détails.",
+  "RulesContextNotFound": "Contexte '{0}' introuvable dans RuleMatrix.Contexts.",
+  "RulesContextHeader":  "Contexte '{0}'. Chaîne d'héritage : {1}",
+  "RulesDirectHeader":   "Règles directes :",
+  "RulesInheritedHeader": "Règles héritées (non surchargées) :",
+  "CategoriesNone":      "Aucune catégorie PNJ personnalisée enregistrée. D'autres plugins enregistrent via API_RegisterCategory.",
+  "CategoriesList":      "{0} catégorie(s) PNJ personnalisée(s) enregistrée(s) : {1}",
   "StatusBlock":    "PVE Damage Guard v{0}\n  Réflexion : {1} ({2:F2}x), BlocPvPSansRéflexion : {3}, Coéquipiers : {4}\n  PNJ->Joueur défaut : {5:F2}, PNJ->Structure défaut : {6:F2}, Pièges comme PvP : {7}\n  Journal : {8} (fichier={9}), Céder à TruePVE : {10}, Webhook Discord : {22}\n  Fonctions : TOD={11}, VictimSubtype={12}, BuildingGrade={13}, PerAttackerStruct={14}, RuleMatrix={15}\n  Heure : {16} ({17}), Événements : {18} ent / {20} dôme / {21} global, Problèmes config : {19}\n  Commandes : /pdg reload | log | logfile | scale | hour | context | history | test | preset | import | validate | events | webhook | timing | selftest | cache | help"
 }

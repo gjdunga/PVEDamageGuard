@@ -21,7 +21,7 @@ To close: click the **X** in the title bar, or run `/pdg close` in chat, or run 
 | **Status** | Functional. Read-only mirror of the `/pdg` status text output, styled as a CUI panel with color-coded section headings. |
 | **Logging** | Placeholder. Functional in v1.7. Use `/pdg log <level>` and `/pdg logfile <on/off>` for now. |
 | **History** | Placeholder. Functional in v1.7. Use `/pdg history [N]` for now. |
-| **Rules** | Placeholder. Read-only browser in v1.8, editable in v1.9. Use `/pdg context` and edit `oxide/config/PVEDamageGuard.json` for now. |
+| **Rules** | Read-only browser of the rule matrix (v1.8). Editable in v1.9. Shows contexts, inheritance chains, color-coded action types. |
 | **Scaling** | Placeholder. Functional in v1.9. Use `/pdg scale <type> <mult>` and edit the JSON config for now. |
 
 Clicking a placeholder tab shows you which version brings that functionality and which CLI command to use in the meantime.

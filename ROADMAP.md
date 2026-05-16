@@ -86,7 +86,7 @@ Non-CUI:
 - Per-player damage statistics counters (damage dealt, reflected, taken from NPCs, taken from PvP). Persisted to `oxide/data/PVEDamageGuard/stats.json` with periodic writes.
 - `API_GetPlayerStats(BasePlayer)` public hook for integration with stats plugins.
 
-### v1.8.0 - Rules tab (read-only browser) + custom NPC categories (target: 2026-08-06 forced wipe)
+### v1.8.0 (2026-05-16) - Rules tab + custom NPC categories (shipped)
 
 CUI:
 - Rules tab: tree view of contexts -> rules with color-coded action types (green=allow, red=block, yellow=reflect, blue=scale)

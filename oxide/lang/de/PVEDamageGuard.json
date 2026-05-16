@@ -90,5 +90,15 @@
   "StatsNone":      "Noch keine Statistiken für {0}.",
   "StatsReport":    "Statistiken für {0}:\n  Schaden an Spielern: {1:F1}   Von Spielern erhalten: {2:F1}   Von NPCs erhalten: {3:F1}\n  Zurückreflektierter Schaden: {4:F1} ({5} Reflexionen)\n  NPCs getötet: {6}   PvP-Tode: {7}",
   "TestStructureAuth": "Deine Autorisierung auf dieser Struktur: {0}. OwnerID: {1}.",
+  "HelpRules":      "/pdg rules [Kontext] - Kontexte auflisten (ohne Argument) oder direkte + geerbte Regeln eines Kontexts ausgeben.",
+  "HelpCategories": "/pdg categories - benutzerdefinierte NPC-Kategorien auflisten, die von anderen Plugins via API_RegisterCategory registriert wurden.",
+  "RulesMatrixDisabled": "Regelmatrix ist deaktiviert (RuleMatrix.Enabled=false). Keine Regeln zum Durchsuchen.",
+  "RulesContextList":    "Verfügbare Kontexte: {0}. Standard: '{1}'. Verwende /pdg rules <Name> für Details.",
+  "RulesContextNotFound": "Kontext '{0}' nicht in RuleMatrix.Contexts gefunden.",
+  "RulesContextHeader":  "Kontext '{0}'. Vererbungskette: {1}",
+  "RulesDirectHeader":   "Direkte Regeln:",
+  "RulesInheritedHeader": "Geerbte Regeln (nicht überschrieben):",
+  "CategoriesNone":      "Keine benutzerdefinierten NPC-Kategorien registriert. Andere Plugins registrieren via API_RegisterCategory.",
+  "CategoriesList":      "{0} benutzerdefinierte NPC-Kategorie(n) registriert: {1}",
   "StatusBlock":    "PVE Damage Guard v{0}\n  Reflexion: {1} ({2:F2}x), BlockPvPOhneReflexion: {3}, Teamkollegen: {4}\n  NPC->Spieler Standard: {5:F2}, NPC->Struktur Standard: {6:F2}, Fallen als PvP: {7}\n  Protokoll: {8} (Datei={9}), TruePVE überlassen: {10}, Discord Webhook: {22}\n  Funktionen: TOD={11}, VictimSubtype={12}, BuildingGrade={13}, PerAttackerStruct={14}, RuleMatrix={15}\n  Stunde: {16} ({17}), Ereignisse: {18} ent / {20} Kuppel / {21} global, Konfig-Probleme: {19}\n  Befehle: /pdg reload | log | logfile | scale | hour | context | history | test | preset | import | validate | events | webhook | timing | selftest | cache | help"
 }

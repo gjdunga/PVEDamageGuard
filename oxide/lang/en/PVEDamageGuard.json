@@ -89,5 +89,15 @@
   "StatsNone":      "No stats recorded yet for {0}.",
   "StatsReport":    "Stats for {0}:\n  Damage dealt to players: {1:F1}   Taken from players: {2:F1}   Taken from NPCs: {3:F1}\n  Damage reflected back at me: {4:F1} ({5} reflects)\n  NPCs killed: {6}   PvP deaths: {7}",
   "TestStructureAuth": "Your authorization on this structure: {0}. OwnerID: {1}.",
+  "HelpRules":      "/pdg rules [context] - list contexts (no arg) or print direct + inherited rules of one context.",
+  "HelpCategories": "/pdg categories - list custom NPC categories registered by other plugins via API_RegisterCategory.",
+  "RulesMatrixDisabled": "Rule matrix is disabled (RuleMatrix.Enabled=false in config). No rules to browse.",
+  "RulesContextList":    "Available contexts: {0}. Default: '{1}'. Use /pdg rules <name> for details.",
+  "RulesContextNotFound": "Context '{0}' not found in RuleMatrix.Contexts.",
+  "RulesContextHeader":  "Context '{0}'. Inheritance chain: {1}",
+  "RulesDirectHeader":   "Direct rules:",
+  "RulesInheritedHeader": "Inherited rules (not overridden):",
+  "CategoriesNone":      "No custom NPC categories registered. Other plugins can register via API_RegisterCategory(string, Func<BaseEntity,bool>).",
+  "CategoriesList":      "{0} custom NPC categor(y/ies) registered: {1}",
   "StatusBlock":    "PVE Damage Guard v{0}\n  Reflect: {1} ({2:F2}x), BlockPvpIfNotReflecting: {3}, Teammates: {4}\n  NPC->Player default: {5:F2}, NPC->Structure default: {6:F2}, Traps as PvP: {7}\n  Logging: {8} (file={9}), Yield to TruePVE: {10}, Discord webhook: {22}\n  Features: TOD={11}, VictimSubtype={12}, BuildingGrade={13}, PerAttackerStruct={14}, RuleMatrix={15}\n  Current hour: {16} ({17}), Events: {18} entity / {20} dome / {21} global, Config issues: {19}\n  Commands: /pdg reload | log | logfile | scale | hour | context | history | test | preset | import | validate | events | webhook | help"
 }

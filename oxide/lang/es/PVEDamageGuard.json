@@ -89,5 +89,15 @@
   "StatsNone":      "Aún no hay estadísticas para {0}.",
   "StatsReport":    "Estadísticas de {0}:\n  Daño a jugadores: {1:F1}   Recibido de jugadores: {2:F1}   Recibido de NPCs: {3:F1}\n  Daño reflejado: {4:F1} ({5} reflejos)\n  NPCs muertos: {6}   Muertes PvP: {7}",
   "TestStructureAuth": "Tu autorización en esta estructura: {0}. OwnerID: {1}.",
+  "HelpRules":      "/pdg rules [contexto] - listar contextos (sin argumento) o reglas directas + heredadas de un contexto.",
+  "HelpCategories": "/pdg categories - listar categorías NPC personalizadas registradas por otros plugins via API_RegisterCategory.",
+  "RulesMatrixDisabled": "Matriz de reglas deshabilitada (RuleMatrix.Enabled=false). No hay reglas para navegar.",
+  "RulesContextList":    "Contextos disponibles: {0}. Predeterminado: '{1}'. Usa /pdg rules <nombre> para detalles.",
+  "RulesContextNotFound": "Contexto '{0}' no encontrado en RuleMatrix.Contexts.",
+  "RulesContextHeader":  "Contexto '{0}'. Cadena de herencia: {1}",
+  "RulesDirectHeader":   "Reglas directas:",
+  "RulesInheritedHeader": "Reglas heredadas (no sobrescritas):",
+  "CategoriesNone":      "No hay categorías NPC personalizadas registradas. Otros plugins registran via API_RegisterCategory.",
+  "CategoriesList":      "{0} categoría(s) NPC personalizada(s) registrada(s): {1}",
   "StatusBlock":    "PVE Damage Guard v{0}\n  Reflejo: {1} ({2:F2}x), BloqPvPSinReflejo: {3}, Compañeros: {4}\n  NPC->Jugador pred: {5:F2}, NPC->Estructura pred: {6:F2}, Trampas como PvP: {7}\n  Registro: {8} (archivo={9}), Ceder a TruePVE: {10}, Webhook Discord: {22}\n  Funciones: TOD={11}, VictimSubtype={12}, BuildingGrade={13}, PerAttackerStruct={14}, RuleMatrix={15}\n  Hora actual: {16} ({17}), Eventos: {18} ent / {20} cup / {21} glob, Problemas config: {19}\n  Comandos: /pdg reload | log | logfile | scale | hour | context | history | test | preset | import | validate | events | webhook | help"
 }
