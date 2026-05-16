@@ -96,7 +96,7 @@ CUI:
 Non-CUI:
 - Custom NPC category registration API: `API_RegisterCategory(string name, Func<BaseEntity, bool> matcher)`. Third-party plugins (custom NPC mods, Frontier-style packs) can register subtypes that flow through the existing classifier and rule matrix. Registered names appear in `/pdg test` output and are valid in rule matrix keys.
 
-### v1.9.0 - Editing CUI + Backpacks integration (target: 2026-09-03 forced wipe)
+### v1.9.0 (2026-05-16) - Editing CUI + Backpacks integration (shipped)
 
 CUI:
 - Rules tab edit mode (toggle): dropdowns to change action types, add/remove rules, edit context Inherits

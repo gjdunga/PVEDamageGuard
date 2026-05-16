@@ -2,6 +2,41 @@
 
 All notable changes to PVEDamageGuard are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning is [SemVer](https://semver.org/).
 
+## [1.9.0] - 2026-05-16
+
+Fourth and final pre-launch CUI slice. Scaling tab and Rules tab become editable. Backpacks integration via a new public hook. The CUI is now feature-complete for v2.0's Codefling launch.
+
+### Added
+
+- **Scaling CUI tab functional** with live-edit controls:
+  - Multiplier rows for `NPC->Player default`, `NPC->Structure default`, `PvP reflect multiplier`. Each row has `[-0.10] [-0.01] {value} [+0.01] [+0.10]` buttons for stepwise adjustment, clamped to `[0, 100]` and rounded to 2 decimals.
+  - Toggle buttons for the six boolean fields: `ReflectPvpEnabled`, `BlockPvpIfNotReflecting`, `AllowTeammateDamage`, `TreatPlayerTrapsAsPvp`, `ReflectPlayerDamageToForeignStructures`, `YieldToTruePVE`.
+  - Dropdown rows (button-strip style) for `Logging` (5 levels) and `TimeOfDaySource` (Game / Real).
+  - Every edit saves config, rebuilds caches, and re-renders the panel immediately. No reload needed.
+  - Per-damage-type tuning (Bullet, Slash, etc.) and per-grade tuning stay in JSON config or `/pdg scale` — the Scaling tab covers the headline values; the long tail is JSON.
+- **Rules CUI tab edit mode** (toggle at top right of the Rules tab):
+  - When on, each direct rule gets a `cycle` button and a `del` button.
+  - `cycle` rotates the action through `allow -> block -> reflect:1.0 -> scale:0.5 -> allow`. Useful for quick toggles; full action editing (custom multipliers, per-damage-type scale) still goes through JSON.
+  - `del` removes the rule from the context's `Rules` dict.
+  - Inherited rules can't be edited in edit mode (they belong to the parent context; navigate there to edit).
+  - Adding new rules still requires editing the JSON config — too many input affordances for one CUI release. Coming in v2.x if demand.
+- **Six new `pdgui.*` console commands** for the new buttons: `pdgui.scalemod <field> <delta>`, `pdgui.toggle <field>`, `pdgui.dropdown <field> <value>`, `pdgui.rulesedit`, `pdgui.ruleaction <context> <rule-key>`, `pdgui.ruledel <context> <rule-key>`. All gated on `pvedamageguard.admin`.
+- **Backpacks-on-death integration** via two new `[PluginReference]` fields (`Backpacks` for WhiteThunder's plugin and `Backpacks4` for Whispers88's) and a new public hook:
+  - **`API_IsPveDeath(BasePlayer victim)`** — returns true if the player died from a PVEDamageGuard-enforced cause (reflect self-kill) within the last 5 seconds. Backpacks plugins query this on their death-handling hook to decide whether to drop the corpse's backpack. The flag is sticky for 5 seconds so the query is robust across hook ordering.
+  - **`docs/integrations/backpacks.md`** — full integration recipe with C# example for Backpacks plugin authors. PVEDamageGuard provides the signal; the Backpacks plugin interprets it.
+
+### Changed
+
+- `DoReflect` now marks the attacker's userID in `_recentPveDeaths` if the reflect amount equals or exceeds their current health (i.e. the reflect will kill them). The mark is sticky for `PveDeathStickyWindow = 5 seconds`.
+- `AddRuleLineToCui` signature extended with `editMode` and `contextName` parameters to render the per-rule cycle/del buttons.
+- BuildRulesTabContent renders an `Edit mode: ON/OFF` toggle button at the top right of the tab.
+
+### Notes
+
+- Scaling tab covers the most-tuned-during-gameplay fields. Per-damage-type, per-grade, and 24-hour TOD arrays remain in JSON for v1.9. Editing those via CUI is feasible but the screen real estate cost is high; admins who need fine-grained control can use `/pdg scale` or edit the JSON.
+- Rules tab edit mode is intentionally limited. Cycle covers the four most common action archetypes; admins who want custom reflect/scale multipliers (`reflect:0.75`, `scale:{Bullet:0.1,Default:0.4}`) edit the JSON. This is the same trade-off as the legacy `/pdg` chat commands — quick changes in-game, fine-tuning in config.
+- All Scaling and Rules edits run validation (`/pdg validate` chain) implicitly via `RebuildCaches`. If you set a value out of range, the validator warns but the edit still applies; check `/pdg validate` to see any issues.
+
 ## [1.8.0] - 2026-05-16
 
 Third CUI slice. Rules tab becomes a functional read-only browser; custom NPC category registration API lets third-party plugins extend the classifier. No breaking changes.

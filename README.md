@@ -58,7 +58,7 @@ Other reference docs: [configuration.md](docs/configuration.md), [commands.md](d
 
 ## Status
 
-**v1.8.0** - third CUI slice. Rules tab becomes a read-only rule-matrix browser with inheritance visualization and color-coded actions. New `API_RegisterCategory` lets third-party plugins extend the NPC classifier. `/pdg rules` and `/pdg categories` text alternatives.
+**v1.9.0** - final pre-launch CUI slice. Scaling tab and Rules tab edit-mode go live. Backpacks integration via `API_IsPveDeath`. CUI is now feature-complete for v2.0's Codefling launch.
 
 See [CHANGELOG.md](CHANGELOG.md) for version history and [ROADMAP.md](ROADMAP.md) for planned features.
 

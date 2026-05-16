@@ -15,7 +15,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("PVE Damage Guard", "Gabriel Dungan (DunganSoft Technologies)", "1.8.0")]
+    [Info("PVE Damage Guard", "Gabriel Dungan (DunganSoft Technologies)", "1.9.0")]
     [Description("Future-proof NPC classifier, declarative rule matrix, per-attacker/per-victim damage scaling, time-of-day modifiers, ZoneManager / RaidableBases / Convoy / Armored Train context switching, reflect-as-a-service, Discord webhook output, Damage Control config import, preset configurations, config validation, classification cache, hook timing telemetry, Carbon framework support, in-game CUI admin panel with live-streaming Logging and paginated History tabs, per-player damage statistics, and per-event context overrides for PVE Rust servers.")]
     public class PVEDamageGuard : CovalencePlugin
     {
@@ -27,6 +27,8 @@ namespace Oxide.Plugins
         [PluginReference] private Plugin RaidableBases;
         [PluginReference] private Plugin Convoy;
         [PluginReference] private Plugin ArmoredTrain;
+        [PluginReference] private Plugin Backpacks;
+        [PluginReference] private Plugin Backpacks4;
 
         private const string PermBypass = "pvedamageguard.bypass";
         private const string PermAdmin  = "pvedamageguard.admin";
@@ -99,6 +101,15 @@ namespace Oxide.Plugins
         // Custom NPC categories registered by other plugins (v1.8).
         // Matchers run before the built-in ClassifySubtype checks; first match wins.
         private readonly Dictionary<string, Func<BaseEntity, bool>> _registeredCategories = new Dictionary<string, Func<BaseEntity, bool>>();
+
+        // Per-player Rules tab edit-mode flag (v1.9).
+        private readonly HashSet<ulong> _uiRulesEditMode = new HashSet<ulong>();
+
+        // Track which players just died from a PVEDamageGuard-induced cause (reflect or
+        // block) so external plugins (Backpacks etc.) can query via API_IsPveDeath
+        // before deciding whether to drop the corpse's backpack. (v1.9)
+        private readonly Dictionary<ulong, DateTime> _recentPveDeaths = new Dictionary<ulong, DateTime>();
+        private static readonly TimeSpan PveDeathStickyWindow = TimeSpan.FromSeconds(5);
 
         // CUI state (v1.6): track which players currently have the panel open and on which tab.
         private readonly Dictionary<ulong, string> _openPanels = new Dictionary<ulong, string>();
@@ -953,6 +964,19 @@ namespace Oxide.Plugins
         public string[] API_ListCustomCategories()
         {
             return _registeredCategories.Keys.ToArray();
+        }
+
+        // v1.9 - Backpacks-friendly query. Returns true if this player died from a
+        // PVEDamageGuard-enforced cause (reflect or block) within the sticky window.
+        // Backpacks-on-death plugins (Backpacks by WhiteThunder, Backpacks 4 by Whispers88)
+        // can query this to decide whether to drop the corpse's backpack.
+        // See docs/integrations/backpacks.md for the integration recipe.
+        [HookMethod("API_IsPveDeath")]
+        public bool API_IsPveDeath(BasePlayer victim)
+        {
+            if (victim == null) return false;
+            if (!_recentPveDeaths.TryGetValue(victim.userID, out var when)) return false;
+            return DateTime.UtcNow - when <= PveDeathStickyWindow;
         }
 
         [HookMethod("API_GetPlayerStats")]
@@ -1967,7 +1991,7 @@ namespace Oxide.Plugins
                 case "logging": BuildLoggingTabContent(container, player); break;
                 case "history": BuildHistoryTabContent(container, player); break;
                 case "rules":   BuildRulesTabContent(container, player); break;
-                case "scaling": BuildPlaceholderTabContent(container, "Scaling", "Sliders for live scaling arrive in v1.9. For now, use /pdg scale <type> <mult>."); break;
+                case "scaling": BuildScalingTabContent(container, player); break;
             }
 
             CuiHelper.AddUi(player, container);
@@ -2242,12 +2266,21 @@ namespace Oxide.Plugins
                 _uiRulesContext[player.userID] = selected;
             }
 
-            // Header line 1: active context at player position
+            bool editMode = _uiRulesEditMode.Contains(player.userID);
+
+            // Header line 1: active context at player position + edit-mode toggle button
             container.Add(new CuiLabel
             {
                 Text = { Text = $"<color=#ee7d5a>Active at your position:</color> {activeContext ?? "<none>"}",
                          FontSize = 13, Align = TextAnchor.MiddleLeft, Color = CuiTextColor },
-                RectTransform = { AnchorMin = "0.02 0.95", AnchorMax = "0.98 0.99" },
+                RectTransform = { AnchorMin = "0.02 0.95", AnchorMax = "0.78 0.99" },
+            }, CuiContentPanel);
+            container.Add(new CuiButton
+            {
+                Button = { Color = editMode ? CuiAccentColor : CuiButtonColor, Command = "pdgui.rulesedit" },
+                RectTransform = { AnchorMin = "0.80 0.95", AnchorMax = "0.98 0.99" },
+                Text = { Text = editMode ? "Edit mode: ON" : "Edit mode: OFF", FontSize = 11,
+                         Align = TextAnchor.MiddleCenter, Color = CuiTextColor },
             }, CuiContentPanel);
 
             // Header line 2: inheritance chain for selected context
@@ -2305,7 +2338,7 @@ namespace Oxide.Plugins
                     ri++;
                     foreach (var kv in directRules)
                     {
-                        AddRuleLineToCui(container, kv.Key, kv.Value, ruleYTop, ruleRowH, ri++, false);
+                        AddRuleLineToCui(container, kv.Key, kv.Value, ruleYTop, ruleRowH, ri++, false, editMode, selected);
                     }
                 }
 
@@ -2322,7 +2355,7 @@ namespace Oxide.Plugins
                     ri++;
                     foreach (var kv in inheritedOnly)
                     {
-                        AddRuleLineToCui(container, kv.Key, kv.Value, ruleYTop, ruleRowH, ri++, true);
+                        AddRuleLineToCui(container, kv.Key, kv.Value, ruleYTop, ruleRowH, ri++, true, false, selected);
                     }
                 }
 
@@ -2339,17 +2372,38 @@ namespace Oxide.Plugins
         }
 
         private void AddRuleLineToCui(CuiElementContainer container, string ruleKey, string actionStr,
-                                       float topY, float rowH, int idx, bool inherited)
+                                       float topY, float rowH, int idx, bool inherited, bool editMode, string contextName)
         {
             var color = GetActionColor(actionStr);
             var keyText = inherited ? $"<color=#888888>{Escape(ruleKey)}</color>" : Escape(ruleKey);
             var line = $"{keyText}   <color={color}>{Escape(actionStr)}</color>";
+            // Right edge for label depends on whether we're showing edit buttons
+            float labelRight = editMode ? 0.80f : 0.98f;
             container.Add(new CuiLabel
             {
                 Text = { Text = line, FontSize = 11, Align = TextAnchor.MiddleLeft, Color = CuiTextColor },
                 RectTransform = { AnchorMin = $"0.26 {topY - rowH * (idx + 1)}",
-                                  AnchorMax = $"0.98 {topY - rowH * idx}" },
+                                  AnchorMax = $"{labelRight} {topY - rowH * idx}" },
             }, CuiContentPanel);
+            if (editMode)
+            {
+                // Cycle action button
+                container.Add(new CuiButton
+                {
+                    Button = { Color = CuiButtonColor, Command = $"pdgui.ruleaction {contextName} {ruleKey}" },
+                    RectTransform = { AnchorMin = $"0.81 {topY - rowH * (idx + 1)}",
+                                      AnchorMax = $"0.89 {topY - rowH * idx}" },
+                    Text = { Text = "cycle", FontSize = 10, Align = TextAnchor.MiddleCenter, Color = CuiTextColor },
+                }, CuiContentPanel);
+                // Delete button
+                container.Add(new CuiButton
+                {
+                    Button = { Color = "0.5 0.2 0.2 1.0", Command = $"pdgui.ruledel {contextName} {ruleKey}" },
+                    RectTransform = { AnchorMin = $"0.90 {topY - rowH * (idx + 1)}",
+                                      AnchorMax = $"0.98 {topY - rowH * idx}" },
+                    Text = { Text = "del", FontSize = 10, Align = TextAnchor.MiddleCenter, Color = CuiTextColor },
+                }, CuiContentPanel);
+            }
         }
 
         private string GetActionColor(string actionStr)
@@ -2397,6 +2451,143 @@ namespace Oxide.Plugins
                 name = ctx.Inherits;
             }
             return result;
+        }
+
+        // v1.9 - Scaling tab: live-edit controls for the most-commonly-tuned values.
+        // Per-damage-type and per-grade fine-tuning stays in JSON config + /pdg scale command;
+        // this tab covers the booleans, the headline multipliers, the log level, and TOD source.
+        private void BuildScalingTabContent(CuiElementContainer container, BasePlayer player)
+        {
+            float defaultNpc = 1f;
+            _config.NpcToPlayerScaling.TryGetValue("Default", out defaultNpc);
+
+            // Header
+            container.Add(new CuiLabel
+            {
+                Text = { Text = "<color=#ee7d5a>Live scaling editor</color> - changes save and reload immediately",
+                         FontSize = 13, Align = TextAnchor.MiddleLeft, Color = CuiAccentColor },
+                RectTransform = { AnchorMin = "0.02 0.94", AnchorMax = "0.98 0.99" },
+            }, CuiContentPanel);
+
+            // Multiplier rows
+            float y = 0.88f;
+            float rowH = 0.06f;
+            BuildScaleRow(container, "NPC->Player default", "NpcToPlayer.Default", defaultNpc, y);
+            BuildScaleRow(container, "NPC->Structure default", "NpcToStructure", _config.NpcToStructureScaling, y - rowH);
+            BuildScaleRow(container, "PvP reflect multiplier", "ReflectMultiplier", _config.ReflectMultiplier, y - rowH * 2);
+
+            // Toggles
+            float ty = y - rowH * 3 - 0.02f;
+            container.Add(new CuiLabel
+            {
+                Text = { Text = "<color=#a0a0a0>Toggles:</color>", FontSize = 12, Align = TextAnchor.MiddleLeft, Color = CuiMutedTextColor },
+                RectTransform = { AnchorMin = $"0.02 {ty}", AnchorMax = $"0.98 {ty + 0.04f}" },
+            }, CuiContentPanel);
+            ty -= 0.05f;
+            BuildToggleRow(container, "Reflect PvP",                _config.ReflectPvpEnabled,                  "ReflectPvpEnabled",                  ty);
+            ty -= 0.045f;
+            BuildToggleRow(container, "Block PvP w/o reflect",       _config.BlockPvpIfNotReflecting,            "BlockPvpIfNotReflecting",            ty);
+            ty -= 0.045f;
+            BuildToggleRow(container, "Allow teammate damage",       _config.AllowTeammateDamage,                "AllowTeammateDamage",                ty);
+            ty -= 0.045f;
+            BuildToggleRow(container, "Traps as PvP",                _config.TreatPlayerTrapsAsPvp,              "TreatPlayerTrapsAsPvp",              ty);
+            ty -= 0.045f;
+            BuildToggleRow(container, "Reflect on foreign structures", _config.ReflectPlayerDamageToForeignStructures, "ReflectPlayerDamageToForeignStructures", ty);
+            ty -= 0.045f;
+            BuildToggleRow(container, "Yield to TruePVE",            _config.YieldToTruePVE,                     "YieldToTruePVE",                     ty);
+
+            // Log level dropdown
+            ty -= 0.06f;
+            BuildEnumRow(container, "Log level", _config.Logging.ToString(),
+                new[] { "None", "Reflects", "Scaled", "All", "Trace" }, "Logging", ty);
+
+            // TOD source dropdown
+            ty -= 0.05f;
+            BuildEnumRow(container, "TOD source", _config.TimeOfDaySource,
+                new[] { "Game", "Real" }, "TimeOfDaySource", ty);
+
+            // Footer hint
+            container.Add(new CuiLabel
+            {
+                Text = { Text = "<color=#666666>Per-damage-type tuning: /pdg scale <Type> <mult>. Building grade and TOD arrays: edit JSON + /pdg reload.</color>",
+                         FontSize = 10, Align = TextAnchor.MiddleLeft, Color = CuiMutedTextColor },
+                RectTransform = { AnchorMin = "0.02 0.02", AnchorMax = "0.98 0.06" },
+            }, CuiContentPanel);
+        }
+
+        private void BuildScaleRow(CuiElementContainer container, string label, string field, float value, float y)
+        {
+            float h = 0.05f;
+            container.Add(new CuiLabel
+            {
+                Text = { Text = label, FontSize = 11, Align = TextAnchor.MiddleLeft, Color = CuiTextColor },
+                RectTransform = { AnchorMin = $"0.02 {y - h}", AnchorMax = $"0.40 {y}" },
+            }, CuiContentPanel);
+            // [-0.10] [-0.01] [value] [+0.01] [+0.10]
+            BuildScaleBtn(container, "-0.10", $"pdgui.scalemod {field} -0.10", 0.42f, y, h);
+            BuildScaleBtn(container, "-0.01", $"pdgui.scalemod {field} -0.01", 0.50f, y, h);
+            container.Add(new CuiLabel
+            {
+                Text = { Text = $"<color=#ee7d5a>{value:F2}</color>", FontSize = 13,
+                         Align = TextAnchor.MiddleCenter, Color = CuiAccentColor },
+                RectTransform = { AnchorMin = $"0.58 {y - h}", AnchorMax = $"0.72 {y}" },
+            }, CuiContentPanel);
+            BuildScaleBtn(container, "+0.01", $"pdgui.scalemod {field} 0.01", 0.74f, y, h);
+            BuildScaleBtn(container, "+0.10", $"pdgui.scalemod {field} 0.10", 0.82f, y, h);
+        }
+
+        private void BuildScaleBtn(CuiElementContainer container, string label, string command, float x, float y, float h)
+        {
+            container.Add(new CuiButton
+            {
+                Button = { Color = CuiButtonColor, Command = command },
+                RectTransform = { AnchorMin = $"{x} {y - h}", AnchorMax = $"{x + 0.07f} {y}" },
+                Text = { Text = label, FontSize = 10, Align = TextAnchor.MiddleCenter, Color = CuiTextColor },
+            }, CuiContentPanel);
+        }
+
+        private void BuildToggleRow(CuiElementContainer container, string label, bool value, string field, float y)
+        {
+            float h = 0.04f;
+            container.Add(new CuiLabel
+            {
+                Text = { Text = label, FontSize = 11, Align = TextAnchor.MiddleLeft, Color = CuiTextColor },
+                RectTransform = { AnchorMin = $"0.02 {y - h}", AnchorMax = $"0.55 {y}" },
+            }, CuiContentPanel);
+            container.Add(new CuiButton
+            {
+                Button = { Color = value ? CuiAccentDim : CuiButtonColor, Command = $"pdgui.toggle {field}" },
+                RectTransform = { AnchorMin = $"0.58 {y - h}", AnchorMax = $"0.78 {y}" },
+                Text = { Text = value ? "ON" : "OFF", FontSize = 11,
+                         Align = TextAnchor.MiddleCenter, Color = CuiTextColor },
+            }, CuiContentPanel);
+        }
+
+        private void BuildEnumRow(CuiElementContainer container, string label, string current,
+                                   string[] options, string field, float y)
+        {
+            float h = 0.04f;
+            container.Add(new CuiLabel
+            {
+                Text = { Text = label, FontSize = 11, Align = TextAnchor.MiddleLeft, Color = CuiTextColor },
+                RectTransform = { AnchorMin = $"0.02 {y - h}", AnchorMax = $"0.30 {y}" },
+            }, CuiContentPanel);
+            // Layout each option as a small button
+            float x = 0.32f;
+            float btnW = 0.13f;
+            for (int i = 0; i < options.Length; i++)
+            {
+                bool active = options[i] == current;
+                container.Add(new CuiButton
+                {
+                    Button = { Color = active ? CuiAccentDim : CuiButtonColor,
+                               Command = $"pdgui.dropdown {field} {options[i]}" },
+                    RectTransform = { AnchorMin = $"{x} {y - h}", AnchorMax = $"{x + btnW - 0.005f} {y}" },
+                    Text = { Text = options[i], FontSize = 10,
+                             Align = TextAnchor.MiddleCenter, Color = CuiTextColor },
+                }, CuiContentPanel);
+                x += btnW;
+            }
         }
 
         private void HidePanel(BasePlayer player)
@@ -2471,6 +2662,154 @@ namespace Oxide.Plugins
             if (!Enum.TryParse<LogLevel>(arg.Args[0], true, out var level)) return;
             _uiLogFilter[p.userID] = level;
             ShowPanel(p, "logging");
+        }
+
+        // v1.9 - modify a multiplier from the Scaling tab
+        [ConsoleCommand("pdgui.scalemod")]
+        private void CcmdPdguiScaleMod(ConsoleSystem.Arg arg)
+        {
+            var p = arg.Player();
+            if (p == null) return;
+            if (!HasUiPerm(p)) return;
+            if (arg.Args == null || arg.Args.Length < 2) return;
+            var field = arg.Args[0];
+            if (!float.TryParse(arg.Args[1], System.Globalization.NumberStyles.Float,
+                                System.Globalization.CultureInfo.InvariantCulture, out var delta)) return;
+
+            // Apply the delta to the named field; clamp to [0, 100]
+            switch (field)
+            {
+                case "ReflectMultiplier":
+                    _config.ReflectMultiplier = ClampMult(_config.ReflectMultiplier + delta); break;
+                case "NpcToStructure":
+                    _config.NpcToStructureScaling = ClampMult(_config.NpcToStructureScaling + delta); break;
+                case "NpcToPlayer.Default":
+                    if (!_config.NpcToPlayerScaling.TryGetValue("Default", out var cur)) cur = 1f;
+                    _config.NpcToPlayerScaling["Default"] = ClampMult(cur + delta); break;
+                default:
+                    PrintWarning($"pdgui.scalemod: unknown field '{field}'"); return;
+            }
+            SaveConfig();
+            RebuildCaches();
+            ShowPanel(p, "scaling");
+        }
+
+        private static float ClampMult(float v)
+        {
+            if (v < 0f) return 0f;
+            if (v > 100f) return 100f;
+            return (float)Math.Round(v, 2);
+        }
+
+        // v1.9 - toggle a boolean from the Scaling tab
+        [ConsoleCommand("pdgui.toggle")]
+        private void CcmdPdguiToggle(ConsoleSystem.Arg arg)
+        {
+            var p = arg.Player();
+            if (p == null) return;
+            if (!HasUiPerm(p)) return;
+            if (arg.Args == null || arg.Args.Length < 1) return;
+            switch (arg.Args[0])
+            {
+                case "ReflectPvpEnabled":                       _config.ReflectPvpEnabled = !_config.ReflectPvpEnabled; break;
+                case "BlockPvpIfNotReflecting":                 _config.BlockPvpIfNotReflecting = !_config.BlockPvpIfNotReflecting; break;
+                case "AllowTeammateDamage":                     _config.AllowTeammateDamage = !_config.AllowTeammateDamage; break;
+                case "TreatPlayerTrapsAsPvp":                   _config.TreatPlayerTrapsAsPvp = !_config.TreatPlayerTrapsAsPvp; break;
+                case "ReflectPlayerDamageToForeignStructures":  _config.ReflectPlayerDamageToForeignStructures = !_config.ReflectPlayerDamageToForeignStructures; break;
+                case "YieldToTruePVE":
+                    _config.YieldToTruePVE = !_config.YieldToTruePVE;
+                    DetectCompanions(); // recompute _yieldToTruePve
+                    break;
+                default: PrintWarning($"pdgui.toggle: unknown field '{arg.Args[0]}'"); return;
+            }
+            SaveConfig();
+            RebuildCaches();
+            ShowPanel(p, "scaling");
+        }
+
+        // v1.9 - set an enum/string value from the Scaling tab
+        [ConsoleCommand("pdgui.dropdown")]
+        private void CcmdPdguiDropdown(ConsoleSystem.Arg arg)
+        {
+            var p = arg.Player();
+            if (p == null) return;
+            if (!HasUiPerm(p)) return;
+            if (arg.Args == null || arg.Args.Length < 2) return;
+            var field = arg.Args[0];
+            var value = arg.Args[1];
+            switch (field)
+            {
+                case "Logging":
+                    if (Enum.TryParse<LogLevel>(value, true, out var lvl)) _config.Logging = lvl;
+                    else return;
+                    break;
+                case "TimeOfDaySource":
+                    if (value == "Game" || value == "Real") _config.TimeOfDaySource = value;
+                    else return;
+                    break;
+                default: PrintWarning($"pdgui.dropdown: unknown field '{field}'"); return;
+            }
+            SaveConfig();
+            RebuildCaches();
+            ShowPanel(p, "scaling");
+        }
+
+        // v1.9 - toggle Rules tab edit mode
+        [ConsoleCommand("pdgui.rulesedit")]
+        private void CcmdPdguiRulesEdit(ConsoleSystem.Arg arg)
+        {
+            var p = arg.Player();
+            if (p == null) return;
+            if (!HasUiPerm(p)) return;
+            if (_uiRulesEditMode.Contains(p.userID)) _uiRulesEditMode.Remove(p.userID);
+            else _uiRulesEditMode.Add(p.userID);
+            ShowPanel(p, "rules");
+        }
+
+        // v1.9 - cycle the action on a single rule (allow -> block -> reflect:1.0 -> scale:0.5 -> allow)
+        [ConsoleCommand("pdgui.ruleaction")]
+        private void CcmdPdguiRuleAction(ConsoleSystem.Arg arg)
+        {
+            var p = arg.Player();
+            if (p == null) return;
+            if (!HasUiPerm(p)) return;
+            if (arg.Args == null || arg.Args.Length < 2) return;
+            var contextName = arg.Args[0];
+            // The rule key may contain spaces; we passed it URL-encoded as args[1..]
+            var ruleKey = string.Join(" ", arg.Args, 1, arg.Args.Length - 1);
+            if (_config.RuleMatrix == null || !_config.RuleMatrix.Contexts.TryGetValue(contextName, out var ctx) || ctx.Rules == null) return;
+            if (!ctx.Rules.TryGetValue(ruleKey, out var current)) return;
+            // Cycle
+            string next;
+            var cur = current.ToLowerInvariant();
+            if (cur == "allow") next = "block";
+            else if (cur == "block") next = "reflect:1.0";
+            else if (cur.StartsWith("reflect")) next = "scale:0.5";
+            else if (cur.StartsWith("scale")) next = "allow";
+            else next = "allow";
+            ctx.Rules[ruleKey] = next;
+            SaveConfig();
+            RebuildCaches();
+            ShowPanel(p, "rules");
+        }
+
+        // v1.9 - delete a rule from a context
+        [ConsoleCommand("pdgui.ruledel")]
+        private void CcmdPdguiRuleDel(ConsoleSystem.Arg arg)
+        {
+            var p = arg.Player();
+            if (p == null) return;
+            if (!HasUiPerm(p)) return;
+            if (arg.Args == null || arg.Args.Length < 2) return;
+            var contextName = arg.Args[0];
+            var ruleKey = string.Join(" ", arg.Args, 1, arg.Args.Length - 1);
+            if (_config.RuleMatrix == null || !_config.RuleMatrix.Contexts.TryGetValue(contextName, out var ctx) || ctx.Rules == null) return;
+            if (ctx.Rules.Remove(ruleKey))
+            {
+                SaveConfig();
+                RebuildCaches();
+            }
+            ShowPanel(p, "rules");
         }
 
         // v1.8 - select a context in the Rules tab
@@ -3089,6 +3428,10 @@ namespace Oxide.Plugins
             float total = info.damageTypes.Total() * multiplier;
             if (total <= 0f) return;
             var major = info.damageTypes.GetMajorityDamageType();
+            // v1.9 - if the reflect would kill the attacker, note it for Backpacks integration.
+            // Sticky for PveDeathStickyWindow so the death hook (and any external query) sees it.
+            if (attacker.health - total <= 0f)
+                _recentPveDeaths[attacker.userID] = DateTime.UtcNow;
             if (!_reflectInFlight.Add(attacker.userID)) return;
             try { attacker.Hurt(total, major, victim, true); }
             finally { _reflectInFlight.Remove(attacker.userID); }
