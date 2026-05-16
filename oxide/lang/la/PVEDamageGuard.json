@@ -1,7 +1,7 @@
 {
   "NoPermission":   "Tibi non licet hoc imperio uti.",
   "ConfigReloaded": "Configuratio PVEDamageGuard renovata est.",
-  "UsageRoot":      "Usus: /pdg [reload | log <gradus> | logfile <on|off> | scale <typusDamni> <multiplicator> | test]",
+  "UsageRoot":      "Usus: /pdg [reload | log <gradus> | logfile <on|off> | scale <typusDamni> <multiplicator> | hour | test]",
   "LogCurrent":     "Gradus diarii praesens: {0}. Usus: /pdg log <None|Reflects|Scaled|All|Trace>",
   "LogUnknown":     "Gradus diarii ignotus '{0}'. Validi: None, Reflects, Scaled, All, Trace.",
   "LogSet":         "Gradus diarii ad {0} positus.",
@@ -10,15 +10,19 @@
   "ScaleUsage":     "Usus: /pdg scale <TypusDamni> <multiplicator 0-100>",
   "ScaleBadNumber": "Multiplicator debet esse numerus inter 0 et 100.",
   "ScaleSet":       "Mensuratio NPC->Lusor pro {0} ad {1:F2}x posita.",
+  "HourReport":     "Hora {0} ({1}). Multiplicatores horarum: Global={2:F2}, PvP={3:F2}, NpcToPlayer={4:F2}, NpcToStructure={5:F2}.",
   "TestOnlyInGame": "/pdg test a lusore in ludo exsequenda est.",
   "TestNoHit":      "/pdg test: radius nihil intra 250m percussit.",
   "TestNoEntity":   "/pdg test: radius superficiem percussit sed nullam entitatem ludi.",
-  "TestTarget":     "Scopus: {0} (typus={1}) classificatus ut {2}",
+  "TestTarget":     "Scopus: {0} (typus={1}) classificatus ut {2}, subtypus={3}",
   "TestDistance":   "Distantia: {0:F1}m",
-  "TestRuleNpcAttacker": "Si haec entitas lusorem laedit: mensuratio NPC->Lusor adhibetur (Praedefinita {0:F2}x). Si aedificium laedit: mensuratio NPC->Aedificium {1:F2}x.",
-  "TestRulePvp":          "Si hunc lusorem laedis: Reflexio={0} ({1:F2}x), ImpedireSiNonReflectens={2}, CedereTruePVE={3}",
-  "TestRuleStructure":   "Si NPC hoc aedificium laedit: mensuratio {0:F2}x (0 = impeditum).",
+  "TestHour":       "Hora: {0} ({1}). Multiplicator horarum globalis: {2:F2}x",
+  "TestRuleNpcAttacker": "Si haec entitas lusorem laedit: mensuratio NPC->Lusor (Praedefinita {0:F2}x) * NpcToPlayer hora ({1:F2}x) * Globalis hora ({2:F2}x). Si aedificium laedit: mensuratio oppugnatoris {3:F2}x * NpcToStructure hora ({4:F2}x).",
+  "TestRulePvp":    "Si hunc lusorem laedis: Reflexio={0} ({1:F2}x), ImpedireSiNonReflectens={2}, CedereTruePVE={3}, PvP hora={4:F2}x",
+  "TestRuleBuilding": "Si NPC hoc aedificium laedit: NpcToStructure praedefinita {0:F2}x, multiplicator gradus aedificii {1:F2}x (gradus={2}).",
+  "TestRuleStructure": "Si NPC hoc dispositum laedit: mensuratio NpcToStructure {0:F2}x (0 = impeditum).",
   "TestRuleTrap":   "Insidiae a lusore possessae sunt. Damnum ab his insidiis ad alios lusores ut PvP a possessore tractatur.",
   "TestRuleOther":  "Nulla regula PVEDamageGuard ad hanc entitatem pertinet. Mores damni nativi.",
-  "StatusBlock":    "PVE Damage Guard v{0}\n  Reflexio: {1} ({2:F2}x)\n  Impedire PvP si non reflectens: {3}\n  Damnum inter socios permissum: {4}\n  NPC->Lusor mult praedefinitus: {5:F2}\n  NPC->Aedificium mult: {6:F2}\n  Insidiae ut PvP tractantur: {7}\n  Diarium: {8} (tabella={9})\n  Cedere TruePVE: {10}\n  Mandata: /pdg reload | log <gradus> | logfile <on|off> | scale <typus> <mult> | test"
+  "TestRuleVictimSubtype": "Mensuratio per subtypum victimae: '{0}' Praedefinita {1:F2}x (super regulas oppugnatoris).",
+  "StatusBlock":    "PVE Damage Guard v{0}\n  Reflexio: {1} ({2:F2}x), ImpedirePvPSineReflexio: {3}, Socii: {4}\n  NPC->Lusor praedefinitus: {5:F2}, NPC->Aedificium praedefinitus: {6:F2}, Insidiae ut PvP: {7}\n  Diarium: {8} (tabella={9}), Cedere TruePVE: {10}\n  Functiones: TOD={11}, VictimSubtype={12}, BuildingGrade={13}, PerAttackerStruct={14}\n  Hora praesens: {15} ({16})\n  Mandata: /pdg reload | log <grad> | logfile <on|off> | scale <typus> <mult> | hour | test"
 }

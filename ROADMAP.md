@@ -2,14 +2,25 @@
 
 What is planned for future PVEDamageGuard versions. Nothing here is a commitment; priorities shift based on user feedback and Facepunch's monthly forced wipes.
 
-## v1.1 (next minor)
+## v1.1 (shipped 2026-05-16)
+
+Done in v1.1.0:
+- Time-of-day damage modifiers (Global / PvP / NpcToPlayer / NpcToStructure, 24-element hourly arrays, Game or Real source)
+- Per-victim subtype scaling (Bear, Wolf, Heli, Bradley, Minicopter, etc.)
+- Building grade multipliers (Twigs/Wood/Stone/Metal/TopTier)
+- Per-attacker structure scaling (replaces Damage Control's `Heli_bypass`)
+- `/pdg test` expanded with subtype + hour + composed-multiplier diagnostics
+- `/pdg hour` command
+- `API_ClassifySubtype` and `API_GetCurrentHour` public hooks
+
+Deferred to v1.2:
 
 - **Rule-matrix configuration mode (opt-in).** Optional `RuleMatrix` config block that lets admins write `(AttackerCategory x VictimCategory x Context) -> Action` rules declaratively, similar to TruePVE rulesets. Defaults remain the current per-attacker scaling model so existing configs are not broken.
 - **Context providers**: ZoneManager integration for per-zone rule overrides; event tracker that listens to `OnEntitySpawned` / `OnEntityKill` for Bradley/Heli/Cargo/Convoy/Armored Train and flips context automatically.
 - **`/pdg test fire <type> <amount>`**: simulate an actual hit (not just classification) to confirm final damage values without needing to swing a weapon.
 - **`/pdg history`**: ring buffer of the last N classified hits, queryable in-game for quick debugging.
 
-## v1.2
+## v1.3
 
 - **RaidableBases integration**: detect being inside a RaidableBases dome, flip context to allow PvP and full building damage automatically.
 - **Discord webhook output for `Reflects` and higher log levels** (admin moderation channel).

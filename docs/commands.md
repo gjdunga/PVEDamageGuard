@@ -70,32 +70,46 @@ Examples:
 /pdg scale Default 1.0    # NPCs deal vanilla damage for any type not otherwise overridden
 ```
 
+## /pdg hour (v1.1.0)
+
+Reports the current hour from the configured time-of-day source and the four TOD multipliers at that hour. Use to verify TOD rules are loading correctly.
+
+Example:
+```
+Hour 14 (Game). TOD multipliers: Global=1.00, PvP=1.00, NpcToPlayer=1.00, NpcToStructure=1.00.
+```
+
 ## /pdg test
 
-**The diagnostic command.** Aim at any entity in the world and run `/pdg test`. PVEDamageGuard raycasts from your crosshair, classifies the target, and reports which rule would apply.
+**The diagnostic command.** Aim at any entity in the world and run `/pdg test`. PVEDamageGuard raycasts from your crosshair, classifies the target, and reports which rule would apply, including all v1.1.0 layered modifiers.
 
 Example output, aiming at a scientist:
 ```
-Target: scientistnpc_full_any (type=ScientistNPC) classified as HumanNpc
+Target: scientistnpc_full_any (type=ScientistNPC) classified as HumanNpc, subtype=Scientist
 Distance: 18.3m
-If this entity damages a player: NPC->Player scaling applied (Default 0.50x). If it damages a structure: NPC->Structure scaling 0.50x.
+Hour: 14 (Game). Global TOD multiplier: 1.00x
+If this entity damages a player: NPC->Player scaling (Default 0.50x) * NpcToPlayer TOD (1.00x) * Global TOD (1.00x). If it damages a structure: attacker struct scaling 0.50x * NpcToStructure TOD (1.00x).
+Per-victim subtype scaling: 'Scientist' Default 1.00x (stacks on top of attacker rules).
 ```
 
 Example output, aiming at a wooden wall:
 ```
-Target: wall.wood (type=BuildingBlock) classified as Building
+Target: wall.wood (type=BuildingBlock) classified as Building, subtype=<none>
 Distance: 4.2m
-If an NPC damages this structure: scaling 0.50x (0 = blocked).
+Hour: 22 (Game). Global TOD multiplier: 1.00x
+If an NPC damages this building: NpcToStructure default 0.50x, Building grade multiplier 1.50x (grade=Wood).
 ```
 
-Example output, aiming at another player:
+Example output, aiming at a patrol heli:
 ```
-Target: player (type=BasePlayer) classified as RealPlayer
-Distance: 6.7m
-If you damage this player: Reflect=True (1.00x), BlockIfNotReflecting=True, YieldToTruePVE=True
+Target: patrolhelicopter (type=BaseHelicopter) classified as VehicleNpc, subtype=PatrolHelicopter
+Distance: 87.2m
+Hour: 14 (Game). Global TOD multiplier: 1.00x
+If this entity damages a player: NPC->Player scaling (Default 0.50x) * NpcToPlayer TOD (1.00x) * Global TOD (1.00x). If it damages a structure: attacker struct scaling 1.00x * NpcToStructure TOD (1.00x).
+Per-victim subtype scaling: 'PatrolHelicopter' Default 1.00x (stacks on top of attacker rules).
 ```
 
-This is the fastest way to debug "why is this NPC hurting my players so hard" or "why isn't this trap kill reflecting" - aim at the actor in question, run `/pdg test`, and you get a definitive answer in one line.
+This is the fastest way to debug "why is this NPC hurting my players so hard" or "why isn't this trap kill reflecting" - aim at the actor in question, run `/pdg test`, and you get a definitive answer including every modifier layer.
 
 Limitations:
 - Must be run in-game (server console can't aim at things).

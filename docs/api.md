@@ -63,6 +63,31 @@ Returns the configured NPC -> Player scaling multiplier for a given damage type,
 float bulletMult = (float)(PVEDamageGuard?.Call("API_GetNpcScaling", "Bullet") ?? 1.0f);
 ```
 
+### API_ClassifySubtype(BaseEntity entity) -> string (v1.1.0)
+
+Returns a stable subtype string for entities admins want to tune individually. One of: `Bear`, `Wolf`, `Boar`, `Chicken`, `Stag`, `Horse`, `RidableHorse`, `Minicopter`, `ScrapHelicopter`, `HotAirBalloon`, `BradleyAPC`, `PatrolHelicopter`, `SamSite`, `Barrel`, `Zombie`, `Scientist`, or `null` if the entity does not match any known subtype.
+
+Use this when you want finer-grained classification than `API_Classify` (which returns the broad NpcCategory). For example, you may want to treat a patrol heli differently than a Bradley even though both are `VehicleNpc`.
+
+```csharp
+var subtype = (string)PVEDamageGuard?.Call("API_ClassifySubtype", entity);
+if (subtype == "PatrolHelicopter")
+{
+    // do something heli-specific
+}
+```
+
+### API_GetCurrentHour() -> int (v1.1.0)
+
+Returns the current hour (0-23) PVEDamageGuard uses for time-of-day lookups, respecting the admin's `TimeOfDaySource` setting (`Game` or `Real`).
+
+```csharp
+int hour = (int)(PVEDamageGuard?.Call("API_GetCurrentHour") ?? 0);
+// announce a transition if hour just changed
+```
+
+Use this for plugins that want to synchronize with PVEDamageGuard's TOD schedule (e.g. a Discord plugin announcing "PvP hours start in 30 minutes" using the same source of truth).
+
 ## Public types
 
 ### NpcCategory enum

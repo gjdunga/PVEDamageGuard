@@ -11,9 +11,14 @@ PVEDamageGuard classifies NPCs by **base type** (`BasePlayer.IsNpc`, `BaseNpc`, 
 ## Features
 
 - **Type-based NPC classifier** that survives every Facepunch update without code changes
-- **Per-attacker, per-damage-type scaling** (NPC bullets at 0.25x, slash at 0.5x, etc.) - something binary allow/block plugins cannot do
+- **Per-attacker, per-damage-type NPC->Player scaling** (NPC bullets at 0.25x, slash at 0.5x, etc.)
+- **Per-attacker NPC->Structure scaling** with subtype overrides (`PatrolHelicopter: 1.0` lets helis raid at full damage even when other NPCs are blocked - replaces Damage Control's `Heli_bypass`)
+- **Per-victim subtype scaling** (Bear, Wolf, Minicopter, Barrel, etc.) - per-damage-type, stacks on top of attacker rules
+- **Building grade multipliers** (Twigs/Wood/Stone/Metal/TopTier) - applies on top of structure scaling
+- **Time-of-day modifiers** for Global / PvP / NpcToPlayer / NpcToStructure - 24-hour arrays, configurable Game or Real time source
 - **PvP reflect** with re-entrancy guard, configurable multiplier, optional team carve-out
-- **`/pdg test`** - aim at any entity in game and see exactly how PVEDamageGuard classifies it and what rule would apply
+- **`/pdg test`** - aim at any entity in game and see classification, subtype, current hour, and every modifier layer that would apply
+- **`/pdg hour`** - current hour and TOD multipliers
 - **Five-tier logging** (None / Reflects / Scaled / All / Trace) with optional structured file output to `oxide/logs/PVEDamageGuard/`
 - **Public API** for TruePVE, RaidableBases, PunishAttacker, NextGenPVE and other plugins to call
 - **TruePVE companion mode** - auto-detects TruePVE on load and yields allow/block decisions to it, only applying scaling/reflect on top
@@ -37,7 +42,7 @@ See [docs/installation.md](docs/installation.md) for full setup, [docs/configura
 
 ## Status
 
-**v1.0.0** - initial public release.
+**v1.1.0** - parity with the four legacy Damage Control features (time-of-day, per-victim subtype, building grade, per-attacker structure).
 
 See [CHANGELOG.md](CHANGELOG.md) for version history and [ROADMAP.md](ROADMAP.md) for planned features.
 
