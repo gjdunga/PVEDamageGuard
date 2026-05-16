@@ -2,6 +2,18 @@
 
 All notable changes to PVEDamageGuard are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning is [SemVer](https://semver.org/).
 
+## [1.7.2] - 2026-05-16
+
+Hotfix for v1.7.1 compile failure on current Rust builds.
+
+### Fixed
+
+- **Compile error in `IsAttackerAuthorizedOnStructure`**: v1.7.1 assumed `BuildingPrivlidge.authorizedPlayers` is `List<PlayerNameID>` and accessed `auth.userid`. Facepunch changed the type to `List<ulong>` in a recent Rust update, so `auth` no longer has a `.userid` field. The fix compares the value directly as a ulong, with a reflection-based fallback for forward/backward compatibility if Facepunch ever changes the type again.
+
+### Notes
+
+- No functional change versus v1.7.1. If your server's compiler accepted v1.7.1 you can keep it; if you saw `'ulong' does not contain a definition for 'userid'` at compile, this patch resolves it.
+
 ## [1.7.1] - 2026-05-16
 
 Bug fix: PvP reflect now also covers Player damaging another player's structure (BuildingBlock / Door / Deployable). The original v1.0 reflect was intended as a "punish griefing attempts" feature but only covered Player vs Player, not Player vs other-player's-base. This release closes that gap.

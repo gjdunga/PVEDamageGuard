@@ -15,7 +15,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("PVE Damage Guard", "Gabriel Dungan (DunganSoft Technologies)", "1.7.1")]
+    [Info("PVE Damage Guard", "Gabriel Dungan (DunganSoft Technologies)", "1.7.2")]
     [Description("Future-proof NPC classifier, declarative rule matrix, per-attacker/per-victim damage scaling, time-of-day modifiers, ZoneManager / RaidableBases / Convoy / Armored Train context switching, reflect-as-a-service, Discord webhook output, Damage Control config import, preset configurations, config validation, classification cache, hook timing telemetry, Carbon framework support, in-game CUI admin panel with live-streaming Logging and paginated History tabs, per-player damage statistics, and per-event context overrides for PVE Rust servers.")]
     public class PVEDamageGuard : CovalencePlugin
     {
@@ -2699,7 +2699,11 @@ namespace Oxide.Plugins
                 catch { /* tolerate API drift */ }
             }
 
-            // TC authorization for BuildingBlock victims
+            // TC authorization for BuildingBlock victims.
+            // Modern Rust changed BuildingPrivlidge.authorizedPlayers from
+            // List<PlayerNameID> (legacy struct) to List<ulong> (steam IDs only).
+            // Direct ulong comparison works on current builds. If Facepunch
+            // ever reverts the type, the reflection fallback below catches it.
             if (victim is BuildingBlock bb)
             {
                 try
@@ -2708,10 +2712,38 @@ namespace Oxide.Plugins
                     if (priv != null && priv.authorizedPlayers != null)
                     {
                         foreach (var auth in priv.authorizedPlayers)
-                            if (auth.userid == attacker.userID) return true;
+                        {
+                            if (auth == attacker.userID) return true;
+                        }
                     }
                 }
-                catch { /* tolerate API drift */ }
+                catch
+                {
+                    // Reflection fallback for unexpected API shapes
+                    try
+                    {
+                        var priv = bb.GetBuildingPrivilege();
+                        if (priv == null) return false;
+                        var listObj = priv.GetType().GetField("authorizedPlayers")?.GetValue(priv)
+                                     ?? priv.GetType().GetProperty("authorizedPlayers")?.GetValue(priv);
+                        if (listObj is System.Collections.IEnumerable seq)
+                        {
+                            foreach (var item in seq)
+                            {
+                                if (item == null) continue;
+                                ulong id = 0UL;
+                                if (item is ulong ul) id = ul;
+                                else
+                                {
+                                    var f = item.GetType().GetField("userid");
+                                    if (f != null && f.GetValue(item) is ulong uid) id = uid;
+                                }
+                                if (id == attacker.userID) return true;
+                            }
+                        }
+                    }
+                    catch { /* genuinely unsupported - fall through to false */ }
+                }
             }
 
             return false;
