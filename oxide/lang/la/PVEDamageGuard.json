@@ -2,7 +2,7 @@
   "NoPermission":   "Tibi non licet hoc imperio uti.",
   "ConfigReloaded": "Configuratio PVEDamageGuard renovata est.",
   "ConfigReloadedWithIssues": "Configuratio renovata cum {0} problemate(ibus) validationis. Exsequere /pdg validate.",
-  "UsageRoot":      "Usus: /pdg [reload | log <gradus> | logfile <on|off> | scale <typus> <mult> | hour | context | history [N] | test [fire <typus> <quant>] | preset <nomen> | import damagecontrol | validate | help [subimperium]]",
+  "UsageRoot":      "Usus: /pdg [reload | log <gradus> | logfile <on|off> | scale <typus> <mult> | hour | context | history [N] | test [fire <typus> <quant>] | preset <nomen> | import damagecontrol | validate | events | webhook [test|on|off] | help [subimperium]]",
   "LogCurrent":     "Gradus diarii praesens: {0}. Usus: /pdg log <None|Reflects|Scaled|All|Trace>",
   "LogUnknown":     "Gradus ignotus '{0}'. Validi: None, Reflects, Scaled, All, Trace.",
   "LogSet":         "Gradus diarii ad {0} positus.",
@@ -57,5 +57,18 @@
   "HelpPreset":     "/pdg preset <nomen> - configurationem praedefinitam applicare. Disponibilia: {0}. Quodque praedefinitum est imago completa; temperationes existentes superscribuntur.",
   "HelpHelp":       "/pdg help [subimperium] - haec subsidia vel detalia unius subimperii monstrare.",
   "HelpUnknown":    "Subimperium ignotum '{0}'. Exsequere /pdg help pro elencho.",
-  "StatusBlock":    "PVE Damage Guard v{0}\n  Reflexio: {1} ({2:F2}x), ImpedirePvPSineReflexio: {3}, Socii: {4}\n  NPC->Lusor praedef: {5:F2}, NPC->Aedificium praedef: {6:F2}, Insidiae ut PvP: {7}\n  Diarium: {8} (tabella={9}), Cedere TruePVE: {10}\n  Functiones: TOD={11}, VictimSubtype={12}, BuildingGrade={13}, PerAttackerStruct={14}, RuleMatrix={15}\n  Hora praesens: {16} ({17}), Eventus tracti: {18}, Problemata config: {19}\n  Mandata: /pdg reload | log | logfile | scale | hour | context | history | test | preset | import | validate | help"
+  "EventsHeader":   "Eventus activi contextum afficientes: {0} entitates, {1} cupolae, {2} globales.",
+  "EventsEntitiesHeader": "Eventus entitatum tracti (Bradley/Heli/Cargo):",
+  "EventsDomesHeader":    "Cupolae RaidableBases tractae:",
+  "EventsGlobalHeader":   "Eventus globales activi (Convoy/ArmoredTrain):",
+  "EventsNone":     "Nullus eventus activus contextum afficit. Contextus praedefinitus applicatur ubique.",
+  "WebhookStatus":  "Webhook Discord: Enabled={0}, URL={1}, MinLevel={2}, RateLimit={3}/min, Missa ultima minuta={4}. Usus: /pdg webhook [test|on|off]",
+  "WebhookNotConfigured": "Webhook Discord non configuratum. Pone DiscordWebhook.Url in configuratione et DiscordWebhook.Enabled=true, deinde /pdg reload.",
+  "WebhookTestSent": "Nuntius probationis webhook in ordine positus. Canalem Discord inspice.",
+  "WebhookEnabled": "Webhook Discord activatum. Cura ut DiscordWebhook.Url positum sit in configuratione.",
+  "WebhookDisabled": "Webhook Discord deactivatum.",
+  "WebhookUsage":   "Usus: /pdg webhook [test|on|off]. Sine argumento statum monstrat.",
+  "HelpEvents":     "/pdg events - omnes eventus tractos demonstrare: eventus entitatum, cupolae RaidableBases, et eventus globales (Convoy/ArmoredTrain).",
+  "HelpWebhook":    "/pdg webhook - statum webhook Discord demonstrare. /pdg webhook test - nuntium probationis mittere. /pdg webhook on|off - vertere sine renovatione.",
+  "StatusBlock":    "PVE Damage Guard v{0}\n  Reflexio: {1} ({2:F2}x), ImpedirePvPSineReflexio: {3}, Socii: {4}\n  NPC->Lusor praedef: {5:F2}, NPC->Aedificium praedef: {6:F2}, Insidiae ut PvP: {7}\n  Diarium: {8} (tabella={9}), Cedere TruePVE: {10}, Webhook Discord: {22}\n  Functiones: TOD={11}, VictimSubtype={12}, BuildingGrade={13}, PerAttackerStruct={14}, RuleMatrix={15}\n  Hora praesens: {16} ({17}), Eventus: {18} ent / {20} cup / {21} glob, Problemata config: {19}\n  Mandata: /pdg reload | log | logfile | scale | hour | context | history | test | preset | import | validate | events | webhook | help"
 }

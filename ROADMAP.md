@@ -37,6 +37,17 @@ Declarative rule matrix (opt-in) with context providers:
 - Automatic config validation at load: Inherits cycles, dangling provider targets, malformed rule actions, TOD array length, scaling bounds, unknown DamageType
 - Status block now reports config-issue count
 
+### v1.4.0 (2026-05-16) - Ecosystem integration
+
+- RaidableBases integration: tracks dome positions via OnRaidableBaseStarted/Ended hooks, proximity-checks victim position
+- Convoy integration: tracks server-wide active flag via OnConvoyStart/Stop hooks
+- Armored Train integration: same pattern as Convoy (supports both OnTrainEvent* and OnArmoredTrainEvent* hook signatures)
+- New GlobalEventTriggers context provider for server-wide event flags
+- Discord webhook output with configurable URL, min level, rate limit, prefix, username/avatar override
+- `/pdg events` - list all active entity events, domes, global events
+- `/pdg webhook [test|on|off]` - status, test message, runtime toggle
+- Integration recipes in docs/integrations/ for RaidableBases, Convoy, ArmoredTrain, Discord webhooks
+
 ## Planned
 
 ### v1.4.0 - Ecosystem integration (target: 2026-07-02 forced wipe)

@@ -13,8 +13,8 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("PVE Damage Guard", "Gabriel Dungan (DunganSoft Technologies)", "1.3.0")]
-    [Description("Future-proof NPC classifier with optional declarative rule matrix, per-attacker/per-victim damage scaling, building grade and time-of-day modifiers, ZoneManager and event-aware context switching, reflect-as-a-service, Damage Control config import, preset configurations, config validation, and admin diagnostics for PVE Rust servers.")]
+    [Info("PVE Damage Guard", "Gabriel Dungan (DunganSoft Technologies)", "1.4.0")]
+    [Description("Future-proof NPC classifier, declarative rule matrix, per-attacker/per-victim damage scaling, time-of-day modifiers, ZoneManager / RaidableBases / Convoy / Armored Train context switching, reflect-as-a-service, Discord webhook output, Damage Control config import, preset configurations, config validation, and admin diagnostics for PVE Rust servers.")]
     public class PVEDamageGuard : CovalencePlugin
     {
         [PluginReference] private Plugin TruePVE;
@@ -22,6 +22,9 @@ namespace Oxide.Plugins
         [PluginReference] private Plugin NextGenPVE;
         [PluginReference] private Plugin DamageControl;
         [PluginReference] private Plugin ZoneManager;
+        [PluginReference] private Plugin RaidableBases;
+        [PluginReference] private Plugin Convoy;
+        [PluginReference] private Plugin ArmoredTrain;
 
         private const string PermBypass = "pvedamageguard.bypass";
         private const string PermAdmin  = "pvedamageguard.admin";
@@ -48,6 +51,16 @@ namespace Oxide.Plugins
 
         // Event tracker state
         private readonly Dictionary<ulong, TrackedEvent> _activeEvents = new Dictionary<ulong, TrackedEvent>();
+
+        // RaidableBases dome positions (v1.4): keyed by net.ID of the dome marker, value is center+radius.
+        private readonly Dictionary<ulong, TrackedDome> _activeDomes = new Dictionary<ulong, TrackedDome>();
+
+        // Global event flags (v1.4): server-wide "an event is active right now" booleans for Convoy/ArmoredTrain
+        // that don't have a single positional marker entity.
+        private readonly HashSet<string> _activeGlobalEvents = new HashSet<string>();
+
+        // Discord webhook rate limit (v1.4): sliding 1-minute window of send timestamps.
+        private readonly Queue<DateTime> _webhookSendTimes = new Queue<DateTime>();
 
         // History ring buffer
         private readonly Queue<HistoryEntry> _history = new Queue<HistoryEntry>();
@@ -83,6 +96,16 @@ namespace Oxide.Plugins
             public ulong NetId;
             public string EventType;
             public Vector3 Position;
+            public DateTime SeenAt;
+        }
+
+        // v1.4 - RaidableBases dome
+        private class TrackedDome
+        {
+            public ulong Id;
+            public Vector3 Center;
+            public float Radius;
+            public int Mode;          // RaidableBases mode/difficulty 0-5
             public DateTime SeenAt;
         }
 
@@ -276,8 +299,36 @@ namespace Oxide.Plugins
             [JsonProperty("Also write log entries to oxide/logs/PVEDamageGuard/ files for audit")]
             public bool LogToFile = false;
 
+            [JsonProperty("Discord webhook output for reflect/block events (v1.4). Disabled by default; admin sets URL to opt in.")]
+            public DiscordWebhookConfig DiscordWebhook = new DiscordWebhookConfig();
+
             [JsonProperty("Rule matrix configuration (v1.2). Declarative AttackerCategory x VictimCategory -> Action rules with contexts and inheritance. When Enabled=true this REPLACES the case-based scaling for allow/block/reflect decisions; scale actions still compose with TOD, victim subtype, and building grade modifiers.")]
             public RuleMatrixConfig RuleMatrix = new RuleMatrixConfig();
+        }
+
+        private class DiscordWebhookConfig
+        {
+            [JsonProperty("Enabled - master switch. When false the webhook code path is skipped.")]
+            public bool Enabled = false;
+
+            [JsonProperty("Discord webhook URL. Get one from Server Settings -> Integrations -> Webhooks in your Discord server.")]
+            public string Url = "";
+
+            [JsonProperty("Minimum log level to forward to Discord (None | Reflects | Scaled | All | Trace). Recommended: Reflects.")]
+            [JsonConverter(typeof(StringEnumConverter))]
+            public LogLevel MinLevel = LogLevel.Reflects;
+
+            [JsonProperty("Maximum webhook messages per minute (Discord caps at 30; default 20 to leave headroom).")]
+            public int RateLimitPerMinute = 20;
+
+            [JsonProperty("Prefix prepended to every webhook message. Use to identify which server is reporting.")]
+            public string MessagePrefix = "";
+
+            [JsonProperty("Username override that the webhook posts as. Empty = use the webhook's default name.")]
+            public string Username = "PVEDamageGuard";
+
+            [JsonProperty("Avatar URL override. Empty = use the webhook's default avatar.")]
+            public string AvatarUrl = "";
         }
 
         private class RuleMatrixConfig
@@ -351,6 +402,12 @@ namespace Oxide.Plugins
         {
             public ZoneManagerProviderConfig ZoneManager = new ZoneManagerProviderConfig();
             public EventTrackerProviderConfig EventTracker = new EventTrackerProviderConfig();
+
+            [JsonProperty("Global event triggers (v1.4): server-wide context flip when Convoy / ArmoredTrain / etc. is active anywhere on the map. Use for events that do not have a single positional marker entity.")]
+            public GlobalEventTriggersConfig GlobalEventTriggers = new GlobalEventTriggersConfig();
+
+            [JsonProperty("RaidableBases provider (v1.4): tracks raid base domes via OnRaidableBaseStarted/Ended hooks and proximity-checks the victim position.")]
+            public RaidableBasesProviderConfig RaidableBases = new RaidableBasesProviderConfig();
         }
 
         private class ZoneManagerProviderConfig
@@ -376,6 +433,28 @@ namespace Oxide.Plugins
 
             [JsonProperty("Radius from the event entity that activates the context")]
             public float RadiusMeters = 200f;
+        }
+
+        private class GlobalEventTriggersConfig
+        {
+            public bool Enabled = true;
+
+            [JsonProperty("Context to flip to server-wide while any listed global event is active")]
+            public string TriggerContext = "AtPvpEvent";
+
+            [JsonProperty("Recognized global event names: Convoy, ArmoredTrain. Listening hooks: OnConvoyStart/Stop, OnTrainEventStart/Stop, OnArmoredTrainEventStart/Stop.")]
+            public List<string> Events = new List<string> { "Convoy", "ArmoredTrain" };
+        }
+
+        private class RaidableBasesProviderConfig
+        {
+            public bool Enabled = true;
+
+            [JsonProperty("Context applied when victim is inside a tracked raid base dome")]
+            public string TriggerContext = "InRaidableBaseDome";
+
+            [JsonProperty("Override the dome radius the RaidableBases plugin reports. Set to 0 to use the value RaidableBases supplies.")]
+            public float RadiusOverrideMeters = 0f;
         }
 
         protected override void LoadDefaultConfig() => _config = new Configuration();
@@ -544,6 +623,100 @@ namespace Oxide.Plugins
                 Position = entity.transform.position,
                 SeenAt = DateTime.UtcNow,
             };
+        }
+
+        // ===== RaidableBases hooks (v1.4) =====
+        // nivex's RaidableBases plugin fires these on dome lifecycle. Signatures have varied
+        // across versions; we accept the common forms via object params and dig out Vector3+radius.
+
+        private void OnRaidableBaseStarted(Vector3 pos, int mode)
+        {
+            if (!_ruleMatrixEnabled) return;
+            var p = _config.RuleMatrix?.ContextProviders?.RaidableBases;
+            if (p == null || !p.Enabled) return;
+            float radius = p.RadiusOverrideMeters > 0f ? p.RadiusOverrideMeters : 75f; // typical RB dome radius
+            ulong id = (ulong)pos.GetHashCode() ^ (ulong)mode;
+            _activeDomes[id] = new TrackedDome
+            {
+                Id = id, Center = pos, Radius = radius, Mode = mode, SeenAt = DateTime.UtcNow,
+            };
+            LogReflectsLevel($"RaidableBases dome started: pos={pos}, mode={mode}, radius={radius:F0}m. Active domes: {_activeDomes.Count}");
+        }
+
+        private void OnRaidableBaseEnded(Vector3 pos, int mode)
+        {
+            if (!_ruleMatrixEnabled) return;
+            ulong id = (ulong)pos.GetHashCode() ^ (ulong)mode;
+            if (_activeDomes.Remove(id))
+                LogReflectsLevel($"RaidableBases dome ended: pos={pos}, mode={mode}. Active domes: {_activeDomes.Count}");
+        }
+
+        // Some RaidableBases versions emit only OnRaidableBaseStarted with one Vector3 arg.
+        private void OnRaidableBaseStarted(Vector3 pos)
+        {
+            OnRaidableBaseStarted(pos, 0);
+        }
+
+        private void OnRaidableBaseEnded(Vector3 pos)
+        {
+            OnRaidableBaseEnded(pos, 0);
+        }
+
+        // ===== Convoy hooks (v1.4) =====
+
+        private void OnConvoyStart()
+        {
+            ActivateGlobalEvent("Convoy");
+        }
+
+        private void OnConvoyStop()
+        {
+            DeactivateGlobalEvent("Convoy");
+        }
+
+        // ===== Armored Train hooks (v1.4) =====
+        // Adem's plugin has used various hook names across versions; handle the common ones.
+
+        private void OnTrainEventStart()
+        {
+            ActivateGlobalEvent("ArmoredTrain");
+        }
+
+        private void OnTrainEventStop()
+        {
+            DeactivateGlobalEvent("ArmoredTrain");
+        }
+
+        private void OnArmoredTrainEventStart()
+        {
+            ActivateGlobalEvent("ArmoredTrain");
+        }
+
+        private void OnArmoredTrainEventStop()
+        {
+            DeactivateGlobalEvent("ArmoredTrain");
+        }
+
+        private void ActivateGlobalEvent(string name)
+        {
+            if (!_ruleMatrixEnabled) return;
+            var p = _config.RuleMatrix?.ContextProviders?.GlobalEventTriggers;
+            if (p == null || !p.Enabled || p.Events == null || !p.Events.Contains(name)) return;
+            if (_activeGlobalEvents.Add(name))
+                LogReflectsLevel($"Global event activated: {name}. Active global events: [{string.Join(", ", _activeGlobalEvents)}]");
+        }
+
+        private void DeactivateGlobalEvent(string name)
+        {
+            if (_activeGlobalEvents.Remove(name))
+                LogReflectsLevel($"Global event deactivated: {name}. Active global events: [{string.Join(", ", _activeGlobalEvents)}]");
+        }
+
+        // Always log lifecycle events at Reflects-or-higher visibility so admins see them; respects file logging.
+        private void LogReflectsLevel(string msg)
+        {
+            if (LogAt(LogLevel.Reflects)) Log(LogLevel.Reflects, msg);
+            else Puts(msg); // ensure visibility even at None
         }
 
         #endregion
@@ -882,7 +1055,21 @@ namespace Oxide.Plugins
                 }
             }
 
-            // 2. Event tracker proximity
+            // 2. RaidableBases dome proximity (v1.4)
+            if (providers?.RaidableBases != null && providers.RaidableBases.Enabled
+                && _activeDomes.Count > 0 && !string.IsNullOrEmpty(providers.RaidableBases.TriggerContext))
+            {
+                foreach (var dome in _activeDomes.Values)
+                {
+                    float r = providers.RaidableBases.RadiusOverrideMeters > 0f
+                        ? providers.RaidableBases.RadiusOverrideMeters
+                        : dome.Radius;
+                    if ((dome.Center - pos).sqrMagnitude <= r * r)
+                        return providers.RaidableBases.TriggerContext;
+                }
+            }
+
+            // 3. Event tracker proximity (Bradley / Heli / Cargo entities)
             if (providers?.EventTracker != null && providers.EventTracker.Enabled
                 && _activeEvents.Count > 0 && !string.IsNullOrEmpty(providers.EventTracker.TriggerContext))
             {
@@ -893,6 +1080,14 @@ namespace Oxide.Plugins
                     if ((ev.Position - pos).sqrMagnitude <= r2)
                         return providers.EventTracker.TriggerContext;
                 }
+            }
+
+            // 4. Global event triggers (v1.4) - Convoy / ArmoredTrain server-wide flag
+            if (providers?.GlobalEventTriggers != null && providers.GlobalEventTriggers.Enabled
+                && _activeGlobalEvents.Count > 0
+                && !string.IsNullOrEmpty(providers.GlobalEventTriggers.TriggerContext))
+            {
+                return providers.GlobalEventTriggers.TriggerContext;
             }
 
             return _config.RuleMatrix.DefaultContext ?? "Default";
@@ -1588,6 +1783,8 @@ namespace Oxide.Plugins
                 case "test":     return Lang("HelpTest");
                 case "import":   return Lang("HelpImport");
                 case "preset":   return string.Format(Lang("HelpPreset"), string.Join(", ", _presetNames));
+                case "events":   return Lang("HelpEvents");
+                case "webhook":  return Lang("HelpWebhook");
                 case "help":     return Lang("HelpHelp");
                 default:         return string.Format(Lang("HelpUnknown"), subcommand);
             }
@@ -1658,6 +1855,49 @@ namespace Oxide.Plugins
             Puts(msg);
             if (_config.LogToFile)
                 LogToFile("damage", $"[{DateTime.Now:HH:mm:ss}] {msg}", this);
+            SendDiscordWebhook(level, msg);
+        }
+
+        // v1.4 - Discord webhook with token-bucket rate limiting.
+        private void SendDiscordWebhook(LogLevel level, string msg)
+        {
+            var dw = _config.DiscordWebhook;
+            if (dw == null || !dw.Enabled) return;
+            if (string.IsNullOrWhiteSpace(dw.Url)) return;
+            if (level < dw.MinLevel) return;
+            if (string.IsNullOrEmpty(msg)) return;
+
+            // Sliding 1-minute window rate limit
+            var now = DateTime.UtcNow;
+            while (_webhookSendTimes.Count > 0 && (now - _webhookSendTimes.Peek()).TotalSeconds >= 60.0)
+                _webhookSendTimes.Dequeue();
+            if (_webhookSendTimes.Count >= dw.RateLimitPerMinute) return;
+            _webhookSendTimes.Enqueue(now);
+
+            var content = (dw.MessagePrefix ?? string.Empty) + msg;
+            if (content.Length > 1900) content = content.Substring(0, 1900) + "...";
+
+            var payload = new Dictionary<string, object> { ["content"] = content };
+            if (!string.IsNullOrWhiteSpace(dw.Username))  payload["username"] = dw.Username;
+            if (!string.IsNullOrWhiteSpace(dw.AvatarUrl)) payload["avatar_url"] = dw.AvatarUrl;
+
+            string body;
+            try { body = JsonConvert.SerializeObject(payload); }
+            catch { return; }
+
+            var headers = new Dictionary<string, string> { ["Content-Type"] = "application/json" };
+            try
+            {
+                webrequest.Enqueue(dw.Url, body, (code, response) =>
+                {
+                    if (code >= 400)
+                        PrintWarning($"Discord webhook returned HTTP {code}: {response}");
+                }, this, Oxide.Core.Libraries.RequestMethod.POST, headers);
+            }
+            catch (Exception e)
+            {
+                PrintWarning($"Discord webhook send failed: {e.Message}");
+            }
         }
 
         private void LogHit(LogLevel level, string tag, HitInfo info, BaseCombatEntity entity,
@@ -1727,6 +1967,8 @@ namespace Oxide.Plugins
                 case "import":  CmdImport(player, args); break;
                 case "help":    CmdHelp(player, args); break;
                 case "validate": CmdValidate(player); break;
+                case "events":  CmdEvents(player); break;
+                case "webhook": CmdWebhook(player, args); break;
                 default:
                     player.Reply(Lang("UsageRoot", player.Id));
                     break;
@@ -1745,7 +1987,9 @@ namespace Oxide.Plugins
                 _config.Logging, _config.LogToFile, _yieldToTruePve,
                 _todEnabled, _victimScalingEnabled, _buildingGradeEnabled, _perAttackerStructureEnabled, _ruleMatrixEnabled,
                 GetCurrentHour(), _config.TimeOfDaySource,
-                _activeEvents.Count, _configIssues.Count));
+                _activeEvents.Count, _configIssues.Count,
+                _activeDomes.Count, _activeGlobalEvents.Count,
+                _config.DiscordWebhook.Enabled));
         }
 
         private void CmdReload(IPlayer player)
@@ -1816,6 +2060,76 @@ namespace Oxide.Plugins
             else
                 player.Reply(string.Format(Lang("ValidateIssues", player.Id), _configIssues.Count)
                              + "\n  - " + string.Join("\n  - ", _configIssues));
+        }
+
+        private void CmdEvents(IPlayer player)
+        {
+            var lines = new List<string>();
+            lines.Add(string.Format(Lang("EventsHeader", player.Id),
+                _activeEvents.Count, _activeDomes.Count, _activeGlobalEvents.Count));
+
+            if (_activeEvents.Count > 0)
+            {
+                lines.Add(Lang("EventsEntitiesHeader", player.Id));
+                foreach (var ev in _activeEvents.Values)
+                    lines.Add($"  - {ev.EventType} at ({ev.Position.x:F0}, {ev.Position.z:F0}), seen {(int)(DateTime.UtcNow - ev.SeenAt).TotalSeconds}s ago");
+            }
+            if (_activeDomes.Count > 0)
+            {
+                lines.Add(Lang("EventsDomesHeader", player.Id));
+                foreach (var dome in _activeDomes.Values)
+                    lines.Add($"  - mode={dome.Mode} at ({dome.Center.x:F0}, {dome.Center.z:F0}), radius={dome.Radius:F0}m, started {(int)(DateTime.UtcNow - dome.SeenAt).TotalSeconds}s ago");
+            }
+            if (_activeGlobalEvents.Count > 0)
+            {
+                lines.Add(Lang("EventsGlobalHeader", player.Id));
+                foreach (var name in _activeGlobalEvents)
+                    lines.Add($"  - {name}");
+            }
+            if (_activeEvents.Count == 0 && _activeDomes.Count == 0 && _activeGlobalEvents.Count == 0)
+                lines.Add(Lang("EventsNone", player.Id));
+
+            player.Reply(string.Join("\n", lines));
+        }
+
+        private void CmdWebhook(IPlayer player, string[] args)
+        {
+            // /pdg webhook [test|on|off|status]
+            if (args.Length < 2)
+            {
+                player.Reply(string.Format(Lang("WebhookStatus", player.Id),
+                    _config.DiscordWebhook.Enabled,
+                    string.IsNullOrEmpty(_config.DiscordWebhook.Url) ? "<unset>" : "<set>",
+                    _config.DiscordWebhook.MinLevel,
+                    _config.DiscordWebhook.RateLimitPerMinute,
+                    _webhookSendTimes.Count));
+                return;
+            }
+            switch (args[1].ToLowerInvariant())
+            {
+                case "test":
+                    if (!_config.DiscordWebhook.Enabled || string.IsNullOrWhiteSpace(_config.DiscordWebhook.Url))
+                    {
+                        player.Reply(Lang("WebhookNotConfigured", player.Id));
+                        return;
+                    }
+                    SendDiscordWebhook(LogLevel.Reflects, "[test] PVEDamageGuard webhook test from " + player.Name);
+                    player.Reply(Lang("WebhookTestSent", player.Id));
+                    break;
+                case "on":
+                    _config.DiscordWebhook.Enabled = true;
+                    SaveConfig();
+                    player.Reply(Lang("WebhookEnabled", player.Id));
+                    break;
+                case "off":
+                    _config.DiscordWebhook.Enabled = false;
+                    SaveConfig();
+                    player.Reply(Lang("WebhookDisabled", player.Id));
+                    break;
+                default:
+                    player.Reply(Lang("WebhookUsage", player.Id));
+                    break;
+            }
         }
 
         private void CmdLog(IPlayer player, string[] args)
@@ -2070,7 +2384,7 @@ namespace Oxide.Plugins
                 ["NoPermission"]    = "You do not have permission to use this command.",
                 ["ConfigReloaded"]  = "PVEDamageGuard config reloaded.",
                 ["ConfigReloadedWithIssues"] = "PVEDamageGuard config reloaded with {0} validation issue(s). Run /pdg validate for details.",
-                ["UsageRoot"]       = "Usage: /pdg [reload | log <level> | logfile <on|off> | scale <type> <mult> | hour | context | history [N] | test [fire <type> <amount>] | preset <name> | import damagecontrol | validate | help [subcommand]]",
+                ["UsageRoot"]       = "Usage: /pdg [reload | log <level> | logfile <on|off> | scale <type> <mult> | hour | context | history [N] | test [fire <type> <amount>] | preset <name> | import damagecontrol | validate | events | webhook [test|on|off] | help [subcommand]]",
                 ["PresetUsage"]     = "Usage: /pdg preset <name>. Available presets: {0}.",
                 ["PresetUnknown"]   = "Unknown preset '{0}'. Available: {1}.",
                 ["PresetApplied"]   = "Applied preset '{0}'. Config saved and reloaded. Review with /pdg status.",
@@ -2125,14 +2439,27 @@ namespace Oxide.Plugins
                 ["TestFireHeader"]  = "Dry-run: {0} {1:F1} damage to {2} ({3} / subtype={4}).",
                 ["TestFireRuleMatrixOutcome"] = "Rule matrix: context='{0}', action={1}. Final damage if applied: {2:F1}.",
                 ["TestFireLegacyOutcome"] = "Legacy scaling path. Final damage if applied: {0:F1}.",
+                ["EventsHeader"]    = "Active context-affecting events: {0} entity, {1} dome, {2} global.",
+                ["EventsEntitiesHeader"] = "Tracked entity events (Bradley/Heli/Cargo):",
+                ["EventsDomesHeader"]    = "Tracked RaidableBases domes:",
+                ["EventsGlobalHeader"]   = "Active global events (Convoy/ArmoredTrain):",
+                ["EventsNone"]      = "No context-affecting events are currently active. Default context applies everywhere.",
+                ["WebhookStatus"]   = "Discord webhook: Enabled={0}, URL={1}, MinLevel={2}, RateLimit={3}/min, Sent-in-last-minute={4}. Usage: /pdg webhook [test|on|off]",
+                ["WebhookNotConfigured"] = "Discord webhook is not configured. Set DiscordWebhook.Url in config and DiscordWebhook.Enabled=true, then /pdg reload.",
+                ["WebhookTestSent"] = "Webhook test message queued. Check your Discord channel.",
+                ["WebhookEnabled"]  = "Discord webhook enabled. Make sure DiscordWebhook.Url is set in config.",
+                ["WebhookDisabled"] = "Discord webhook disabled.",
+                ["WebhookUsage"]    = "Usage: /pdg webhook [test|on|off]. No arg shows status.",
+                ["HelpEvents"]      = "/pdg events - list all currently-tracked events: entity events, RaidableBases domes, and global events (Convoy/ArmoredTrain).",
+                ["HelpWebhook"]     = "/pdg webhook - show Discord webhook status. /pdg webhook test - send a test message. /pdg webhook on|off - toggle without reloading.",
                 ["StatusBlock"]     =
                     "PVE Damage Guard v{0}\n" +
                     "  Reflect: {1} ({2:F2}x), BlockPvpIfNotReflecting: {3}, Teammates: {4}\n" +
                     "  NPC->Player default: {5:F2}, NPC->Structure default: {6:F2}, Traps as PvP: {7}\n" +
-                    "  Logging: {8} (file={9}), Yield to TruePVE: {10}\n" +
+                    "  Logging: {8} (file={9}), Yield to TruePVE: {10}, Discord webhook: {22}\n" +
                     "  Features: TOD={11}, VictimSubtype={12}, BuildingGrade={13}, PerAttackerStruct={14}, RuleMatrix={15}\n" +
-                    "  Current hour: {16} ({17}), Tracked events: {18}, Config issues: {19}\n" +
-                    "  Commands: /pdg reload | log | logfile | scale | hour | context | history | test | preset | import | validate | help"
+                    "  Current hour: {16} ({17}), Events: {18} entity / {20} dome / {21} global, Config issues: {19}\n" +
+                    "  Commands: /pdg reload | log | logfile | scale | hour | context | history | test | preset | import | validate | events | webhook | help"
             }, this);
         }
 

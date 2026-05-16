@@ -1,6 +1,6 @@
 name: PVEDamageGuard
 title: PVE Damage Guard
-version: 1.3.0
+version: 1.4.0
 author: Gabriel Dungan (DunganSoft Technologies)
 description: |
   Future-proof Rust NPC classifier, per-attacker damage scaling, and reflect-as-a-service for PVE servers.
@@ -42,3 +42,7 @@ optional_dependencies:
   - DynamicPVP
   - RaidableBases
   - ZoneManager
+  - Convoy
+  - ArmoredTrain
+  - PunishAttacker
+  - ReflectDamage

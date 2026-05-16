@@ -27,6 +27,9 @@ PVEDamageGuard classifies NPCs by **base type** (`BasePlayer.IsNpc`, `BaseNpc`, 
 - **`/pdg preset <name>`** - four known-good presets: pvepure, pvereflect, pvevehicleraids, pvphoursevents
 - **`/pdg validate`** + automatic validation at load - catches malformed rules, Inherits cycles, dangling provider targets, out-of-bounds multipliers
 - **`/pdg help [subcommand]`** - interactive help system
+- **RaidableBases / Convoy / Armored Train integration** (v1.4) - rule matrix flips contexts automatically based on active events
+- **Discord webhook output** (v1.4) - mod-channel notifications for reflect/block events with rate limiting
+- **`/pdg events`** + **`/pdg webhook`** - list active events and manage webhook from chat
 - **Five-tier logging** (None / Reflects / Scaled / All / Trace) with optional structured file output to `oxide/logs/PVEDamageGuard/`
 - **Public API** including `API_Classify`, `API_ClassifySubtype`, `API_IsNpcAttacker`, `API_ReflectDamage`, `API_GetActiveContext`, `API_IsPvpAt`, `API_IsAllowed` for TruePVE / RaidableBases / PunishAttacker / NextGenPVE and other plugins
 - **TruePVE companion mode** - auto-detects TruePVE on load and yields allow/block decisions to it, only applying scaling/reflect on top
@@ -50,7 +53,7 @@ See [docs/installation.md](docs/installation.md) for full setup, [docs/configura
 
 ## Status
 
-**v1.3.0** - onboarding release. `/pdg import damagecontrol` for migrators, `/pdg preset <name>` for one-line config bootstrapping, automatic config validation with explicit error reports, and an interactive `/pdg help [subcommand]` system.
+**v1.4.0** - ecosystem integration. RaidableBases dome detection, Convoy + Armored Train server-wide flags, Discord webhook output with rate limiting, plus `/pdg events` and `/pdg webhook` admin commands.
 
 See [CHANGELOG.md](CHANGELOG.md) for version history and [ROADMAP.md](ROADMAP.md) for planned features.
 

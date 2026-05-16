@@ -2,6 +2,36 @@
 
 All notable changes to PVEDamageGuard are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning is [SemVer](https://semver.org/).
 
+## [1.4.0] - 2026-05-16
+
+Ecosystem integration release. Hooks into popular PVE/event plugins so the rule matrix flips contexts automatically based on what is happening on the server. Adds Discord webhook output for moderation visibility. No breaking changes; integrations are opt-in via config.
+
+### Added
+
+- **RaidableBases integration** via `[PluginReference]`. New `RaidableBasesProviderConfig` block under `RuleMatrix.ContextProviders.RaidableBases`. Listens to `OnRaidableBaseStarted(Vector3, int)` and `OnRaidableBaseEnded(Vector3, int)` hooks (both with and without the mode parameter for cross-version compatibility). Tracks dome center positions and radii in a separate `_activeDomes` dictionary; `ResolveContext` proximity-checks the victim position and flips to `InRaidableBaseDome` (configurable `TriggerContext`) when inside any dome.
+- **Convoy integration** via `[PluginReference]`. Listens to `OnConvoyStart()` and `OnConvoyStop()` hooks. Because the convoy is a moving fleet without a single position marker, Convoy is tracked as a server-wide global event flag.
+- **Armored Train integration** via `[PluginReference]`. Listens to `OnTrainEventStart` / `OnTrainEventStop` and `OnArmoredTrainEventStart` / `OnArmoredTrainEventStop` (different versions of the plugin use different hook names). Tracked as a server-wide global event flag.
+- **`GlobalEventTriggersConfig`** under `RuleMatrix.ContextProviders.GlobalEventTriggers`. When any listed global event is active anywhere on the map, every victim position resolves to the configured `TriggerContext` (default `AtPvpEvent`). Useful for events that span the whole map and have no single positional marker.
+- **Discord webhook output** via `DiscordWebhookConfig` block. Configurable webhook URL, minimum log level (default `Reflects`), per-minute rate limit (default 20 to leave headroom under Discord's 30/min cap), message prefix, username override, avatar URL override. Token-bucket rate limiting via a sliding 1-minute window. Webhook messages are queued with Oxide's `webrequest` so they don't block the hook.
+- **`/pdg events`** command: lists all active context-affecting events - entity events (Bradley/Heli/Cargo), RaidableBases domes, and global events (Convoy/ArmoredTrain) - with positions, modes, and ages.
+- **`/pdg webhook [test|on|off]`** command: status display with `/pdg webhook`, send a test message with `/pdg webhook test`, toggle Enabled flag without editing config with `on`/`off`.
+- **Integration recipes** in `docs/integrations/`: dedicated short docs for RaidableBases, Convoy, ArmoredTrain, and Discord webhooks covering setup, troubleshooting, and how PVEDamageGuard composes with each.
+
+### Changed
+
+- `ContextProvidersConfig` extended with two new fields: `GlobalEventTriggers` and `RaidableBases`. Existing `ZoneManager` and `EventTracker` fields unchanged.
+- `ResolveContext` now consults providers in this priority order: ZoneManager (positional zone flags) -> RaidableBases (dome proximity) -> EventTracker (entity proximity) -> GlobalEventTriggers (server-wide flags) -> DefaultContext.
+- `Log()` now also forwards messages to the Discord webhook when `DiscordWebhook.Enabled=true` and the message's level meets `DiscordWebhook.MinLevel`.
+- Status block (`/pdg`) now reports dome count, global event count, and Discord webhook enabled state alongside the existing fields.
+- `LoadDefaultMessages` gains 13 new lang keys for events / webhook / help text.
+
+### Notes
+
+- All four ecosystem plugins (RaidableBases, Convoy, ArmoredTrain, Discord) are optional. PVEDamageGuard works exactly as in v1.3.0 if none are installed and the new config blocks are at their defaults.
+- The RaidableBases dome radius defaults to 75m when the plugin doesn't supply one and `RadiusOverrideMeters=0` in config. Adjust per your raid base sizes.
+- Discord webhooks are off by default and require an explicit URL plus `Enabled=true`. Test with `/pdg webhook test` after setup.
+- Convoy and Armored Train are tracked as server-wide flags rather than positional markers because their entities (multiple Bradleys, multiple scientists, multiple cars) don't have a single canonical position. If you want positional convoy detection, add the convoy-spawned Bradley entities to `EventTracker.Events` instead.
+
 ## [1.3.0] - 2026-05-16
 
 Onboarding release. Reduces friction for new admins and Damage Control migrators with config import, presets, validation, and an interactive help system. No breaking changes; all additions are additive commands and a passive validation pass.

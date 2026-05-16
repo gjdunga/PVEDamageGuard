@@ -2,7 +2,7 @@
   "NoPermission":   "You do not have permission to use this command.",
   "ConfigReloaded": "PVEDamageGuard config reloaded.",
   "ConfigReloadedWithIssues": "PVEDamageGuard config reloaded with {0} validation issue(s). Run /pdg validate for details.",
-  "UsageRoot":      "Usage: /pdg [reload | log <level> | logfile <on|off> | scale <type> <mult> | hour | context | history [N] | test [fire <type> <amount>] | preset <name> | import damagecontrol | validate | help [subcommand]]",
+  "UsageRoot":      "Usage: /pdg [reload | log <level> | logfile <on|off> | scale <type> <mult> | hour | context | history [N] | test [fire <type> <amount>] | preset <name> | import damagecontrol | validate | events | webhook [test|on|off] | help [subcommand]]",
   "LogCurrent":     "Current log level: {0}. Usage: /pdg log <None|Reflects|Scaled|All|Trace>",
   "LogUnknown":     "Unknown log level '{0}'. Valid: None, Reflects, Scaled, All, Trace.",
   "LogSet":         "Log level set to {0}.",
@@ -57,5 +57,18 @@
   "HelpPreset":     "/pdg preset <name> - apply a known-good config. Available presets: {0}. Each preset is a complete config snapshot; existing fine-tuning is overwritten.",
   "HelpHelp":       "/pdg help [subcommand] - show this help, or detail on one subcommand.",
   "HelpUnknown":    "Unknown subcommand '{0}'. Run /pdg help for the list.",
-  "StatusBlock":    "PVE Damage Guard v{0}\n  Reflect: {1} ({2:F2}x), BlockPvpIfNotReflecting: {3}, Teammates: {4}\n  NPC->Player default: {5:F2}, NPC->Structure default: {6:F2}, Traps as PvP: {7}\n  Logging: {8} (file={9}), Yield to TruePVE: {10}\n  Features: TOD={11}, VictimSubtype={12}, BuildingGrade={13}, PerAttackerStruct={14}, RuleMatrix={15}\n  Current hour: {16} ({17}), Tracked events: {18}, Config issues: {19}\n  Commands: /pdg reload | log | logfile | scale | hour | context | history | test | preset | import | validate | help"
+  "EventsHeader":   "Active context-affecting events: {0} entity, {1} dome, {2} global.",
+  "EventsEntitiesHeader": "Tracked entity events (Bradley/Heli/Cargo):",
+  "EventsDomesHeader":    "Tracked RaidableBases domes:",
+  "EventsGlobalHeader":   "Active global events (Convoy/ArmoredTrain):",
+  "EventsNone":     "No context-affecting events are currently active. Default context applies everywhere.",
+  "WebhookStatus":  "Discord webhook: Enabled={0}, URL={1}, MinLevel={2}, RateLimit={3}/min, Sent-in-last-minute={4}. Usage: /pdg webhook [test|on|off]",
+  "WebhookNotConfigured": "Discord webhook is not configured. Set DiscordWebhook.Url in config and DiscordWebhook.Enabled=true, then /pdg reload.",
+  "WebhookTestSent": "Webhook test message queued. Check your Discord channel.",
+  "WebhookEnabled": "Discord webhook enabled. Make sure DiscordWebhook.Url is set in config.",
+  "WebhookDisabled": "Discord webhook disabled.",
+  "WebhookUsage":   "Usage: /pdg webhook [test|on|off]. No arg shows status.",
+  "HelpEvents":     "/pdg events - list all currently-tracked events: entity events, RaidableBases domes, and global events (Convoy/ArmoredTrain).",
+  "HelpWebhook":    "/pdg webhook - show Discord webhook status. /pdg webhook test - send a test message. /pdg webhook on|off - toggle without reloading.",
+  "StatusBlock":    "PVE Damage Guard v{0}\n  Reflect: {1} ({2:F2}x), BlockPvpIfNotReflecting: {3}, Teammates: {4}\n  NPC->Player default: {5:F2}, NPC->Structure default: {6:F2}, Traps as PvP: {7}\n  Logging: {8} (file={9}), Yield to TruePVE: {10}, Discord webhook: {22}\n  Features: TOD={11}, VictimSubtype={12}, BuildingGrade={13}, PerAttackerStruct={14}, RuleMatrix={15}\n  Current hour: {16} ({17}), Events: {18} entity / {20} dome / {21} global, Config issues: {19}\n  Commands: /pdg reload | log | logfile | scale | hour | context | history | test | preset | import | validate | events | webhook | help"
 }

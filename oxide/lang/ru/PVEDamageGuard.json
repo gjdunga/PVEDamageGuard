@@ -2,7 +2,7 @@
   "NoPermission":   "У вас нет прав для использования этой команды.",
   "ConfigReloaded": "Конфигурация PVEDamageGuard перезагружена.",
   "ConfigReloadedWithIssues": "Конфигурация PVEDamageGuard перезагружена с {0} проблем(ами) валидации. Запустите /pdg validate.",
-  "UsageRoot":      "Использование: /pdg [reload | log <ур> | logfile <on|off> | scale <тип> <множ> | hour | context | history [N] | test [fire <тип> <колво>] | preset <имя> | import damagecontrol | validate | help [подкоманда]]",
+  "UsageRoot":      "Использование: /pdg [reload | log <ур> | logfile <on|off> | scale <тип> <множ> | hour | context | history [N] | test [fire <тип> <колво>] | preset <имя> | import damagecontrol | validate | events | webhook [test|on|off] | help [подкоманда]]",
   "LogCurrent":     "Текущий уровень логирования: {0}. Использование: /pdg log <None|Reflects|Scaled|All|Trace>",
   "LogUnknown":     "Неизвестный уровень '{0}'. Допустимые: None, Reflects, Scaled, All, Trace.",
   "LogSet":         "Уровень логирования установлен в {0}.",
@@ -57,5 +57,18 @@
   "HelpPreset":     "/pdg preset <имя> - применить предустановленную конфигурацию. Доступные: {0}. Каждый пресет - полный снимок конфигурации; существующая настройка перезаписывается.",
   "HelpHelp":       "/pdg help [подкоманда] - показать эту справку или детали одной подкоманды.",
   "HelpUnknown":    "Неизвестная подкоманда '{0}'. Используйте /pdg help для списка.",
-  "StatusBlock":    "PVE Damage Guard v{0}\n  Отражение: {1} ({2:F2}x), БлокPvPбезОтражения: {3}, Союзники: {4}\n  NPC->Игрок по умолч: {5:F2}, NPC->Постройка по умолч: {6:F2}, Ловушки как PvP: {7}\n  Логирование: {8} (файл={9}), Уступать TruePVE: {10}\n  Возможности: TOD={11}, VictimSubtype={12}, BuildingGrade={13}, PerAttackerStruct={14}, RuleMatrix={15}\n  Текущий час: {16} ({17}), Отслеж событий: {18}, Проблемы конфига: {19}\n  Команды: /pdg reload | log | logfile | scale | hour | context | history | test | preset | import | validate | help"
+  "EventsHeader":   "Активные события, влияющие на контекст: {0} сущностей, {1} куполов, {2} глобальных.",
+  "EventsEntitiesHeader": "Отслеживаемые события сущностей (Bradley/Heli/Cargo):",
+  "EventsDomesHeader":    "Отслеживаемые купола RaidableBases:",
+  "EventsGlobalHeader":   "Активные глобальные события (Convoy/ArmoredTrain):",
+  "EventsNone":     "Нет активных событий, влияющих на контекст. Применяется контекст по умолчанию.",
+  "WebhookStatus":  "Discord вебхук: Enabled={0}, URL={1}, MinLevel={2}, RateLimit={3}/мин, Отправлено за минуту={4}. Использование: /pdg webhook [test|on|off]",
+  "WebhookNotConfigured": "Discord вебхук не настроен. Установите DiscordWebhook.Url в конфиге и DiscordWebhook.Enabled=true, затем /pdg reload.",
+  "WebhookTestSent": "Тестовое сообщение вебхука поставлено в очередь. Проверьте канал Discord.",
+  "WebhookEnabled": "Discord вебхук включён. Убедитесь, что DiscordWebhook.Url установлен в конфиге.",
+  "WebhookDisabled": "Discord вебхук выключен.",
+  "WebhookUsage":   "Использование: /pdg webhook [test|on|off]. Без аргумента показывает статус.",
+  "HelpEvents":     "/pdg events - показать все активные отслеживаемые события: события сущностей, купола RaidableBases и глобальные события (Convoy/ArmoredTrain).",
+  "HelpWebhook":    "/pdg webhook - показать статус Discord вебхука. /pdg webhook test - отправить тестовое сообщение. /pdg webhook on|off - переключить без перезагрузки.",
+  "StatusBlock":    "PVE Damage Guard v{0}\n  Отражение: {1} ({2:F2}x), БлокPvPбезОтражения: {3}, Союзники: {4}\n  NPC->Игрок по умолч: {5:F2}, NPC->Постройка по умолч: {6:F2}, Ловушки как PvP: {7}\n  Логирование: {8} (файл={9}), Уступать TruePVE: {10}, Discord вебхук: {22}\n  Возможности: TOD={11}, VictimSubtype={12}, BuildingGrade={13}, PerAttackerStruct={14}, RuleMatrix={15}\n  Текущий час: {16} ({17}), События: {18} сущ / {20} куп / {21} глоб, Проблемы конфига: {19}\n  Команды: /pdg reload | log | logfile | scale | hour | context | history | test | preset | import | validate | events | webhook | help"
 }
