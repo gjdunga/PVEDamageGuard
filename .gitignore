@@ -1,0 +1,26 @@
+# Build artifacts
+bin/
+obj/
+*.dll
+*.pdb
+
+# IDE / editor
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Oxide runtime files - the repo ships templates, NOT live server state
+oxide/data/
+oxide/logs/
+
+# Local-only override (never committed)
+oxide/config/PVEDamageGuard.local.json

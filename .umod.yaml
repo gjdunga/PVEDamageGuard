@@ -1,0 +1,43 @@
+name: PVEDamageGuard
+title: PVE Damage Guard
+version: 1.0.0
+author: Gabriel Dungan (DunganSoft Technologies)
+description: |
+  Future-proof Rust NPC classifier, per-attacker damage scaling, and reflect-as-a-service for PVE servers.
+  Designed as a TruePVE companion. Uses type-based NPC detection (BasePlayer.IsNpc, BaseNpc, NPCPlayer,
+  BaseHelicopter, BradleyAPC) so new Facepunch NPC subclasses are caught automatically without prefab-name
+  string matching. Exposes a public API for other PVE plugins (TruePVE, RaidableBases, PunishAttacker,
+  NextGenPVE) to query classification, request scaling, or invoke reflect.
+
+license: GPL-3.0
+url: https://github.com/gjdunga/PVEDamageGuard
+source: https://github.com/gjdunga/PVEDamageGuard/blob/main/oxide/plugins/PVEDamageGuard.cs
+issues: https://github.com/gjdunga/PVEDamageGuard/issues
+
+game: rust
+framework: oxide
+type: plugin
+
+tags:
+  - pve
+  - damage
+  - npc
+  - classifier
+  - reflect
+  - truepve-companion
+
+permissions:
+  - name: pvedamageguard.bypass
+    description: Player takes full vanilla damage (admin testing only).
+  - name: pvedamageguard.admin
+    description: Allows use of /pdg chat commands.
+
+commands:
+  - name: pdg
+    description: Main admin command. /pdg, /pdg reload, /pdg log <level>, /pdg logfile <on|off>, /pdg scale <type> <mult>, /pdg test.
+
+dependencies: []
+optional_dependencies:
+  - TruePVE
+  - DynamicPVP
+  - RaidableBases
