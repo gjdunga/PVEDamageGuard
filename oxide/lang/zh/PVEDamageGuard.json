@@ -81,5 +81,8 @@
   "HelpTiming":     "/pdg timing - hook 计时统计 (最近 1000 次命中的平均/p95/max 微秒)。",
   "HelpSelfTest":   "/pdg selftest - 重新运行 Rust 类型解析自检。",
   "HelpCache":      "/pdg cache - 显示缓存大小。/pdg cache clear - 清空。",
+  "HelpUi":         "/pdg ui - 打开游戏内 CUI 管理面板。需要 pvedamageguard.admin 权限。",
+  "HelpClose":      "/pdg close - 关闭您的 CUI 面板。",
+  "UiOnlyInGame":   "/pdg ui 必须由游戏中的玩家运行。",
   "StatusBlock":    "PVE Damage Guard v{0}\n  反射: {1} ({2:F2}x), 无反射时阻挡: {3}, 队友: {4}\n  NPC->玩家 默认: {5:F2}, NPC->结构 默认: {6:F2}, 陷阱视为PvP: {7}\n  日志: {8} (文件={9}), 让步TruePVE: {10}, Discord webhook: {22}\n  功能: TOD={11}, VictimSubtype={12}, BuildingGrade={13}, PerAttackerStruct={14}, RuleMatrix={15}\n  时段: {16} ({17}), 事件: {18} 实体 / {20} 圆顶 / {21} 全局, 配置问题: {19}\n  命令: /pdg reload | log | logfile | scale | hour | context | history | test | preset | import | validate | events | webhook | timing | selftest | cache | help"
 }

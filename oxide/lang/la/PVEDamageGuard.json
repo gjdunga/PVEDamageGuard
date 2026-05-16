@@ -80,5 +80,8 @@
   "HelpTiming":     "/pdg timing - statistica temporis hook (medium/p95/max in microsecundis super ultimos 1000 ictus).",
   "HelpSelfTest":   "/pdg selftest - probationem typorum Rust iterum exsequi.",
   "HelpCache":      "/pdg cache - magnitudinem custodis monstrare. /pdg cache clear - vacuare.",
+  "HelpUi":         "/pdg ui - tabulam administrationis CUI in ludo aperire. Postulat ius pvedamageguard.admin.",
+  "HelpClose":      "/pdg close - tabulam tuam CUI claudere.",
+  "UiOnlyInGame":   "/pdg ui a lusore in ludo exsequenda est.",
   "StatusBlock":    "PVE Damage Guard v{0}\n  Reflexio: {1} ({2:F2}x), ImpedirePvPSineReflexio: {3}, Socii: {4}\n  NPC->Lusor praedef: {5:F2}, NPC->Aedificium praedef: {6:F2}, Insidiae ut PvP: {7}\n  Diarium: {8} (tabella={9}), Cedere TruePVE: {10}, Webhook Discord: {22}\n  Functiones: TOD={11}, VictimSubtype={12}, BuildingGrade={13}, PerAttackerStruct={14}, RuleMatrix={15}\n  Hora praesens: {16} ({17}), Eventus: {18} ent / {20} cup / {21} glob, Problemata config: {19}\n  Mandata: /pdg reload | log | logfile | scale | hour | context | history | test | preset | import | validate | events | webhook | help"
 }

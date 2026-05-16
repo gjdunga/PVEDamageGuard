@@ -81,5 +81,8 @@
   "HelpTiming":     "/pdg timing - Hook-Timing-Statistik (Mittel/p95/max in Mikrosekunden über letzte 1000 Treffer).",
   "HelpSelfTest":   "/pdg selftest - Selbsttest für Rust-Typauflösung erneut ausführen.",
   "HelpCache":      "/pdg cache - Cache-Größe anzeigen. /pdg cache clear - leeren.",
+  "HelpUi":         "/pdg ui - das CUI-Adminpanel im Spiel öffnen. Erfordert pvedamageguard.admin-Berechtigung.",
+  "HelpClose":      "/pdg close - dein CUI-Panel schließen.",
+  "UiOnlyInGame":   "/pdg ui muss von einem Spieler im Spiel ausgeführt werden.",
   "StatusBlock":    "PVE Damage Guard v{0}\n  Reflexion: {1} ({2:F2}x), BlockPvPOhneReflexion: {3}, Teamkollegen: {4}\n  NPC->Spieler Standard: {5:F2}, NPC->Struktur Standard: {6:F2}, Fallen als PvP: {7}\n  Protokoll: {8} (Datei={9}), TruePVE überlassen: {10}, Discord Webhook: {22}\n  Funktionen: TOD={11}, VictimSubtype={12}, BuildingGrade={13}, PerAttackerStruct={14}, RuleMatrix={15}\n  Stunde: {16} ({17}), Ereignisse: {18} ent / {20} Kuppel / {21} global, Konfig-Probleme: {19}\n  Befehle: /pdg reload | log | logfile | scale | hour | context | history | test | preset | import | validate | events | webhook | timing | selftest | cache | help"
 }

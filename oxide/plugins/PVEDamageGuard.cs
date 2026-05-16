@@ -9,13 +9,14 @@ using Newtonsoft.Json.Linq;
 using Oxide.Core;
 using Oxide.Core.Libraries.Covalence;
 using Oxide.Core.Plugins;
+using Oxide.Game.Rust.Cui;
 using Rust;
 using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("PVE Damage Guard", "Gabriel Dungan (DunganSoft Technologies)", "1.5.0")]
-    [Description("Future-proof NPC classifier, declarative rule matrix, per-attacker/per-victim damage scaling, time-of-day modifiers, ZoneManager / RaidableBases / Convoy / Armored Train context switching, reflect-as-a-service, Discord webhook output, Damage Control config import, preset configurations, config validation, classification cache, hook timing telemetry, Carbon framework support, and admin diagnostics for PVE Rust servers.")]
+    [Info("PVE Damage Guard", "Gabriel Dungan (DunganSoft Technologies)", "1.6.0")]
+    [Description("Future-proof NPC classifier, declarative rule matrix, per-attacker/per-victim damage scaling, time-of-day modifiers, ZoneManager / RaidableBases / Convoy / Armored Train context switching, reflect-as-a-service, Discord webhook output, Damage Control config import, preset configurations, config validation, classification cache, hook timing telemetry, Carbon framework support, in-game CUI admin panel, and per-event context overrides for PVE Rust servers.")]
     public class PVEDamageGuard : CovalencePlugin
     {
         [PluginReference] private Plugin TruePVE;
@@ -78,6 +79,20 @@ namespace Oxide.Plugins
         // Self-test results (v1.5)
         private bool _selfTestPassed = true;
         private string _selfTestSummary = "Self-test not run yet.";
+
+        // CUI state (v1.6): track which players currently have the panel open and on which tab.
+        private readonly Dictionary<ulong, string> _openPanels = new Dictionary<ulong, string>();
+        private const string CuiMainPanel = "PvedgPanel";
+        private const string CuiContentPanel = "PvedgContent";
+        // Theme - PVEDamageGuard brand colors
+        private const string CuiBgColor      = "0.10 0.10 0.12 0.95";
+        private const string CuiTabBarColor  = "0.15 0.15 0.18 1.0";
+        private const string CuiContentColor = "0.13 0.13 0.16 1.0";
+        private const string CuiAccentColor  = "0.93 0.49 0.35 1.0";   // coral accent
+        private const string CuiAccentDim    = "0.93 0.49 0.35 0.4";
+        private const string CuiButtonColor  = "0.20 0.20 0.24 1.0";
+        private const string CuiTextColor    = "0.95 0.95 0.95 1.0";
+        private const string CuiMutedTextColor = "0.65 0.65 0.65 1.0";
 
         // History ring buffer
         private readonly Queue<HistoryEntry> _history = new Queue<HistoryEntry>();
@@ -450,7 +465,7 @@ namespace Oxide.Plugins
         {
             public bool Enabled = true;
 
-            [JsonProperty("Which context to switch to when any tracked event is active within RadiusMeters of the victim")]
+            [JsonProperty("Which context to switch to when any tracked event is active within RadiusMeters of the victim (fallback if PerEventContext has no match)")]
             public string TriggerContext = "AtPvpEvent";
 
             [JsonProperty("Which event entity types trigger this context")]
@@ -458,17 +473,23 @@ namespace Oxide.Plugins
 
             [JsonProperty("Radius from the event entity that activates the context")]
             public float RadiusMeters = 200f;
+
+            [JsonProperty("Per-event context override (v1.6). Map event name to a specific context. Falls back to TriggerContext if event not listed. Example: { \"BradleyAPC\": \"AtBradleyEvent\", \"BaseHelicopter\": \"AtHeliEvent\" }")]
+            public Dictionary<string, string> PerEventContext = new Dictionary<string, string>();
         }
 
         private class GlobalEventTriggersConfig
         {
             public bool Enabled = true;
 
-            [JsonProperty("Context to flip to server-wide while any listed global event is active")]
+            [JsonProperty("Context to flip to server-wide while any listed global event is active (fallback if PerEventContext has no match)")]
             public string TriggerContext = "AtPvpEvent";
 
             [JsonProperty("Recognized global event names: Convoy, ArmoredTrain. Listening hooks: OnConvoyStart/Stop, OnTrainEventStart/Stop, OnArmoredTrainEventStart/Stop.")]
             public List<string> Events = new List<string> { "Convoy", "ArmoredTrain" };
+
+            [JsonProperty("Per-event context override (v1.6). Map event name to a specific context. Falls back to TriggerContext if event not listed. Example: { \"Convoy\": \"AtConvoyEvent\", \"ArmoredTrain\": \"AtTrainEvent\" }")]
+            public Dictionary<string, string> PerEventContext = new Dictionary<string, string>();
         }
 
         private class RaidableBasesProviderConfig
@@ -1107,24 +1128,41 @@ namespace Oxide.Plugins
             }
 
             // 3. Event tracker proximity (Bradley / Heli / Cargo entities)
+            // v1.6: PerEventContext lookup takes precedence over TriggerContext
             if (providers?.EventTracker != null && providers.EventTracker.Enabled
-                && _activeEvents.Count > 0 && !string.IsNullOrEmpty(providers.EventTracker.TriggerContext))
+                && _activeEvents.Count > 0)
             {
                 float r = providers.EventTracker.RadiusMeters;
                 float r2 = r * r;
                 foreach (var ev in _activeEvents.Values)
                 {
-                    if ((ev.Position - pos).sqrMagnitude <= r2)
+                    if ((ev.Position - pos).sqrMagnitude > r2) continue;
+                    // Per-event override first
+                    if (providers.EventTracker.PerEventContext != null
+                        && providers.EventTracker.PerEventContext.TryGetValue(ev.EventType, out var perEvent)
+                        && !string.IsNullOrEmpty(perEvent))
+                        return perEvent;
+                    if (!string.IsNullOrEmpty(providers.EventTracker.TriggerContext))
                         return providers.EventTracker.TriggerContext;
                 }
             }
 
             // 4. Global event triggers (v1.4) - Convoy / ArmoredTrain server-wide flag
+            // v1.6: PerEventContext lookup takes precedence over TriggerContext
             if (providers?.GlobalEventTriggers != null && providers.GlobalEventTriggers.Enabled
-                && _activeGlobalEvents.Count > 0
-                && !string.IsNullOrEmpty(providers.GlobalEventTriggers.TriggerContext))
+                && _activeGlobalEvents.Count > 0)
             {
-                return providers.GlobalEventTriggers.TriggerContext;
+                if (providers.GlobalEventTriggers.PerEventContext != null)
+                {
+                    foreach (var name in _activeGlobalEvents)
+                    {
+                        if (providers.GlobalEventTriggers.PerEventContext.TryGetValue(name, out var perEvent)
+                            && !string.IsNullOrEmpty(perEvent))
+                            return perEvent;
+                    }
+                }
+                if (!string.IsNullOrEmpty(providers.GlobalEventTriggers.TriggerContext))
+                    return providers.GlobalEventTriggers.TriggerContext;
             }
 
             return _config.RuleMatrix.DefaultContext ?? "Default";
@@ -1515,6 +1553,205 @@ namespace Oxide.Plugins
             long p95 = snapshot[(int)Math.Min(count - 1, (long)(count * 0.95))];
             long max = snapshot[count - 1];
             return (mean, p95, max, count);
+        }
+
+        #endregion
+
+        #region CUI panel (v1.6)
+
+        private static readonly string[] _tabs = { "status", "logging", "history", "rules", "scaling" };
+
+        private void ShowPanel(BasePlayer player, string tab = "status")
+        {
+            if (player == null || !player.IsConnected) return;
+            if (string.IsNullOrEmpty(tab) || Array.IndexOf(_tabs, tab.ToLowerInvariant()) < 0) tab = "status";
+
+            // Destroy any existing panel for this player first to keep it idempotent
+            CuiHelper.DestroyUi(player, CuiMainPanel);
+
+            var container = new CuiElementContainer();
+
+            // Main backdrop
+            container.Add(new CuiPanel
+            {
+                Image = { Color = CuiBgColor },
+                RectTransform = { AnchorMin = "0.18 0.18", AnchorMax = "0.82 0.85" },
+                CursorEnabled = true,
+            }, "Overlay", CuiMainPanel);
+
+            // Title bar
+            container.Add(new CuiPanel
+            {
+                Image = { Color = CuiTabBarColor },
+                RectTransform = { AnchorMin = "0 0.93", AnchorMax = "1 1" },
+            }, CuiMainPanel, CuiMainPanel + ".title");
+
+            container.Add(new CuiLabel
+            {
+                Text = { Text = $"PVE Damage Guard v{Version}",
+                         FontSize = 16, Align = TextAnchor.MiddleLeft, Color = CuiTextColor },
+                RectTransform = { AnchorMin = "0.02 0", AnchorMax = "0.7 1" },
+            }, CuiMainPanel + ".title");
+
+            // Close button
+            container.Add(new CuiButton
+            {
+                Button = { Color = CuiButtonColor, Command = "pdgui.close" },
+                RectTransform = { AnchorMin = "0.94 0.15", AnchorMax = "0.99 0.85" },
+                Text = { Text = "X", FontSize = 14, Align = TextAnchor.MiddleCenter, Color = CuiTextColor },
+            }, CuiMainPanel + ".title");
+
+            // Tab strip (left column)
+            container.Add(new CuiPanel
+            {
+                Image = { Color = CuiTabBarColor },
+                RectTransform = { AnchorMin = "0 0", AnchorMax = "0.18 0.93" },
+            }, CuiMainPanel, CuiMainPanel + ".tabs");
+
+            BuildTabButton(container, "status",  "Status",  0.92f, 1.00f, tab);
+            BuildTabButton(container, "logging", "Logging", 0.83f, 0.91f, tab);
+            BuildTabButton(container, "history", "History", 0.74f, 0.82f, tab);
+            BuildTabButton(container, "rules",   "Rules",   0.65f, 0.73f, tab);
+            BuildTabButton(container, "scaling", "Scaling", 0.56f, 0.64f, tab);
+
+            // Footer in tab strip with version + soft hint
+            container.Add(new CuiLabel
+            {
+                Text = { Text = "/pdg help for CLI", FontSize = 10,
+                         Align = TextAnchor.LowerCenter, Color = CuiMutedTextColor },
+                RectTransform = { AnchorMin = "0 0.01", AnchorMax = "1 0.06" },
+            }, CuiMainPanel + ".tabs");
+
+            // Content area
+            container.Add(new CuiPanel
+            {
+                Image = { Color = CuiContentColor },
+                RectTransform = { AnchorMin = "0.18 0", AnchorMax = "1 0.93" },
+            }, CuiMainPanel, CuiContentPanel);
+
+            // Render the active tab's content
+            switch (tab.ToLowerInvariant())
+            {
+                case "status":  BuildStatusTabContent(container); break;
+                case "logging": BuildPlaceholderTabContent(container, "Logging", "Live log streaming arrives in v1.7. For now, use /pdg log <level>."); break;
+                case "history": BuildPlaceholderTabContent(container, "History", "Paginated history view arrives in v1.7. For now, use /pdg history [N]."); break;
+                case "rules":   BuildPlaceholderTabContent(container, "Rules",   "Rule matrix browser arrives in v1.8. For now, use /pdg context and edit the JSON config."); break;
+                case "scaling": BuildPlaceholderTabContent(container, "Scaling", "Sliders for live scaling arrive in v1.9. For now, use /pdg scale <type> <mult>."); break;
+            }
+
+            CuiHelper.AddUi(player, container);
+            _openPanels[player.userID] = tab;
+        }
+
+        private void BuildTabButton(CuiElementContainer container, string id, string label,
+                                    float yMin, float yMax, string activeTab)
+        {
+            bool active = string.Equals(id, activeTab, StringComparison.OrdinalIgnoreCase);
+            container.Add(new CuiButton
+            {
+                Button = { Color = active ? CuiAccentDim : CuiButtonColor,
+                           Command = $"pdgui.tab {id}" },
+                RectTransform = { AnchorMin = $"0.05 {yMin}", AnchorMax = $"0.95 {yMax}" },
+                Text = { Text = label, FontSize = 13,
+                         Align = TextAnchor.MiddleLeft, Color = CuiTextColor },
+            }, CuiMainPanel + ".tabs");
+        }
+
+        private void BuildStatusTabContent(CuiElementContainer container)
+        {
+            float defaultNpc = 1f;
+            _config.NpcToPlayerScaling.TryGetValue("Default", out defaultNpc);
+
+            var lines = new List<string>
+            {
+                $"<color=#ee7d5a>Reflect</color>: {_config.ReflectPvpEnabled} ({_config.ReflectMultiplier:F2}x)   <color=#ee7d5a>Block PvP w/o reflect</color>: {_config.BlockPvpIfNotReflecting}   <color=#ee7d5a>Teammates</color>: {_config.AllowTeammateDamage}",
+                $"<color=#ee7d5a>NPC -> Player default</color>: {defaultNpc:F2}x   <color=#ee7d5a>NPC -> Structure default</color>: {_config.NpcToStructureScaling:F2}x   <color=#ee7d5a>Traps as PvP</color>: {_config.TreatPlayerTrapsAsPvp}",
+                $"<color=#ee7d5a>Logging</color>: {_config.Logging} (file={_config.LogToFile})   <color=#ee7d5a>Yield to TruePVE</color>: {_yieldToTruePve}   <color=#ee7d5a>Discord webhook</color>: {_config.DiscordWebhook.Enabled}",
+                "",
+                $"<color=#a0a0a0>Features:</color> TOD={_todEnabled}   VictimSubtype={_victimScalingEnabled}   BuildingGrade={_buildingGradeEnabled}   PerAttackerStruct={_perAttackerStructureEnabled}   RuleMatrix={_ruleMatrixEnabled}",
+                $"<color=#a0a0a0>Current hour:</color> {GetCurrentHour()} ({_config.TimeOfDaySource})   <color=#a0a0a0>Events tracked:</color> {_activeEvents.Count} entity / {_activeDomes.Count} dome / {_activeGlobalEvents.Count} global   <color=#a0a0a0>Config issues:</color> {_configIssues.Count}",
+                "",
+                "<color=#888888>Tip: this tab is read-only. Use /pdg commands or edit oxide/config/PVEDamageGuard.json then /pdg reload.</color>",
+            };
+
+            float lineHeight = 1f / 14f;
+            float y = 0.92f;
+            for (int i = 0; i < lines.Count; i++)
+            {
+                container.Add(new CuiLabel
+                {
+                    Text = { Text = lines[i], FontSize = 13,
+                             Align = TextAnchor.MiddleLeft, Color = CuiTextColor },
+                    RectTransform = { AnchorMin = $"0.02 {y - lineHeight}", AnchorMax = $"0.98 {y}" },
+                }, CuiContentPanel);
+                y -= lineHeight;
+            }
+        }
+
+        private void BuildPlaceholderTabContent(CuiElementContainer container, string title, string message)
+        {
+            container.Add(new CuiLabel
+            {
+                Text = { Text = title, FontSize = 20, Align = TextAnchor.MiddleCenter, Color = CuiAccentColor },
+                RectTransform = { AnchorMin = "0 0.7", AnchorMax = "1 0.85" },
+            }, CuiContentPanel);
+
+            container.Add(new CuiLabel
+            {
+                Text = { Text = message, FontSize = 13, Align = TextAnchor.MiddleCenter, Color = CuiMutedTextColor },
+                RectTransform = { AnchorMin = "0.05 0.5", AnchorMax = "0.95 0.65" },
+            }, CuiContentPanel);
+        }
+
+        private void HidePanel(BasePlayer player)
+        {
+            if (player == null) return;
+            CuiHelper.DestroyUi(player, CuiMainPanel);
+            _openPanels.Remove(player.userID);
+        }
+
+        private void HideAllPanels()
+        {
+            foreach (var pair in _openPanels.ToList())
+            {
+                var p = BasePlayer.FindByID(pair.Key);
+                if (p != null) CuiHelper.DestroyUi(p, CuiMainPanel);
+            }
+            _openPanels.Clear();
+        }
+
+        private void OnPlayerDisconnected(BasePlayer player, string reason)
+        {
+            if (player == null) return;
+            _openPanels.Remove(player.userID);
+        }
+
+        private void Unload()
+        {
+            HideAllPanels();
+        }
+
+        [ConsoleCommand("pdgui.tab")]
+        private void CcmdPdguiTab(ConsoleSystem.Arg arg)
+        {
+            var p = arg.Player();
+            if (p == null) return;
+            if (!HasUiPerm(p)) return;
+            var tab = arg.Args != null && arg.Args.Length > 0 ? arg.Args[0] : "status";
+            ShowPanel(p, tab);
+        }
+
+        [ConsoleCommand("pdgui.close")]
+        private void CcmdPdguiClose(ConsoleSystem.Arg arg)
+        {
+            var p = arg.Player();
+            if (p == null) return;
+            HidePanel(p);
+        }
+
+        private bool HasUiPerm(BasePlayer p)
+        {
+            return p != null && (p.IsAdmin || permission.UserHasPermission(p.UserIDString, PermAdmin));
         }
 
         #endregion
@@ -1958,6 +2195,8 @@ namespace Oxide.Plugins
                 case "timing":   return Lang("HelpTiming");
                 case "selftest": return Lang("HelpSelfTest");
                 case "cache":    return Lang("HelpCache");
+                case "ui":       return Lang("HelpUi");
+                case "close":    return Lang("HelpClose");
                 case "help":     return Lang("HelpHelp");
                 default:         return string.Format(Lang("HelpUnknown"), subcommand);
             }
@@ -2145,6 +2384,8 @@ namespace Oxide.Plugins
                 case "timing":  CmdTiming(player, args); break;
                 case "selftest": CmdSelfTest(player); break;
                 case "cache":   CmdCache(player, args); break;
+                case "ui":      CmdUi(player); break;
+                case "close":   CmdUiClose(player); break;
                 default:
                     player.Reply(Lang("UsageRoot", player.Id));
                     break;
@@ -2303,6 +2544,20 @@ namespace Oxide.Plugins
         {
             RunSelfTest();
             player.Reply(_selfTestSummary + (_selfTestPassed ? " (passed)" : " (FAILED - see console)"));
+        }
+
+        private void CmdUi(IPlayer player)
+        {
+            var bp = player.Object as BasePlayer;
+            if (bp == null) { player.Reply(Lang("UiOnlyInGame", player.Id)); return; }
+            ShowPanel(bp, "status");
+        }
+
+        private void CmdUiClose(IPlayer player)
+        {
+            var bp = player.Object as BasePlayer;
+            if (bp == null) return;
+            HidePanel(bp);
         }
 
         private void CmdCache(IPlayer player, string[] args)
@@ -2610,7 +2865,7 @@ namespace Oxide.Plugins
                 ["NoPermission"]    = "You do not have permission to use this command.",
                 ["ConfigReloaded"]  = "PVEDamageGuard config reloaded.",
                 ["ConfigReloadedWithIssues"] = "PVEDamageGuard config reloaded with {0} validation issue(s). Run /pdg validate for details.",
-                ["UsageRoot"]       = "Usage: /pdg [reload | log | logfile | scale | hour | context | history | test | preset | import | validate | events | webhook | timing | selftest | cache | help]",
+                ["UsageRoot"]       = "Usage: /pdg [reload | log | logfile | scale | hour | context | history | test | preset | import | validate | events | webhook | timing | selftest | cache | ui | close | help]",
                 ["PresetUsage"]     = "Usage: /pdg preset <name>. Available presets: {0}.",
                 ["PresetUnknown"]   = "Unknown preset '{0}'. Available: {1}.",
                 ["PresetApplied"]   = "Applied preset '{0}'. Config saved and reloaded. Review with /pdg status.",
@@ -2688,6 +2943,9 @@ namespace Oxide.Plugins
                 ["HelpTiming"]      = "/pdg timing - show hook-timing stats (mean/p95/max in microseconds over the last 1000 hits). /pdg timing on|off - toggle recording. /pdg timing clear - reset the buffer.",
                 ["HelpSelfTest"]    = "/pdg selftest - re-run the type-resolution self-test. Reports whether all Rust types PVEDamageGuard depends on resolve correctly under the current server build.",
                 ["HelpCache"]       = "/pdg cache - show classification cache size. /pdg cache clear - flush the cache (only useful after manually changing entity classification logic).",
+                ["HelpUi"]          = "/pdg ui - open the in-game CUI admin panel. Requires pvedamageguard.admin permission.",
+                ["HelpClose"]       = "/pdg close - close the in-game CUI panel for you.",
+                ["UiOnlyInGame"]    = "/pdg ui must be run by an in-game player.",
                 ["StatusBlock"]     =
                     "PVE Damage Guard v{0}\n" +
                     "  Reflect: {1} ({2:F2}x), BlockPvpIfNotReflecting: {3}, Teammates: {4}\n" +

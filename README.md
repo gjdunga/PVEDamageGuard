@@ -53,7 +53,7 @@ See [docs/installation.md](docs/installation.md) for full setup, [docs/configura
 
 ## Status
 
-**v1.5.0** - performance, reliability, and Carbon support. Per-entity classification cache, startup self-test, hook timing telemetry, GitHub Actions CI, Carbon framework declared compatible, lang stubs for French/German/Chinese-Simplified/Portuguese-BR.
+**v1.6.0** - first slice of the CUI panel that will be feature-complete at v2.0. Ships the CUI framework + read-only Status tab + per-event-context overrides for the rule matrix. `/pdg ui` opens the panel.
 
 See [CHANGELOG.md](CHANGELOG.md) for version history and [ROADMAP.md](ROADMAP.md) for planned features.
 

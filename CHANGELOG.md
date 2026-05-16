@@ -2,6 +2,33 @@
 
 All notable changes to PVEDamageGuard are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning is [SemVer](https://semver.org/).
 
+## [1.6.0] - 2026-05-16
+
+CUI foundation release. First of four CUI minors leading up to v2.0; ships the panel framework, tab system, theme, and a read-only Status tab. Other tabs are present as placeholders with helpful "coming in vX.Y" messages. Plus per-event-context overrides for the rule matrix.
+
+### Added
+
+- **CUI admin panel** rendered via Oxide's standard `CuiHelper` infrastructure. Opens with `/pdg ui` (or `pdgui.tab status` from console). Closes with the X button, `/pdg close`, or `pdgui.close`. Requires `pvedamageguard.admin` permission or server-admin flag.
+- **Panel layout**: title bar with version + close button, left-side tab strip (Status, Logging, History, Rules, Scaling), main content area. Coral accent (#ee7d5a) on active tab and section headings; dark gray content background for readability.
+- **Status tab** (read-only): renders the same fields as `/pdg`'s status block in CUI form, with section headings color-coded by topic. Reflects current configuration at panel open; close and reopen to refresh.
+- **Placeholder tabs** for Logging / History / Rules / Scaling - each shows the feature title plus a one-line "arrives in v1.X" hint that points to the existing CLI equivalent (e.g. Rules placeholder mentions `/pdg context`).
+- **`pdgui.tab <name>`** console command - registered for in-CUI tab-switch buttons. Players can invoke from F1 console too.
+- **`pdgui.close`** console command - dual of `/pdg close` for the close button.
+- **OnPlayerDisconnected** hook removes the player's open-panel state so the dictionary doesn't accumulate stale entries.
+- **Unload** hook calls `HideAllPanels()` so all open panels close cleanly when the plugin is unloaded (otherwise the CUI elements would linger as orphaned overlays).
+- **Per-event-context override** for both `EventTracker` and `GlobalEventTriggers`. New `PerEventContext` dict in each provider config maps specific event names to specific context names. Example: `EventTracker.PerEventContext = { "BradleyAPC": "AtBradleyEvent", "BaseHelicopter": "AtHeliEvent" }` flips to different contexts based on which event the player is near, rather than the previous single `TriggerContext` for all. `TriggerContext` remains the fallback for events not listed.
+
+### Changed
+
+- `ResolveContext` now consults `PerEventContext` lookups before falling back to `TriggerContext` for both providers. Order unchanged (ZoneManager -> RaidableBases -> EventTracker -> GlobalEventTriggers -> Default).
+- `UsageRoot` lang string extended with `ui` and `close` subcommands.
+
+### Notes
+
+- The CUI tab strip shows all five tabs from v1.6 onward, but only Status is functional in this release. Placeholder messages explicitly call out the version where each tab becomes functional (v1.7 / v1.8 / v1.9). This is intentional: it lets admins see the destination roadmap from inside the game and primes muscle memory for tab locations.
+- Per-event-context overrides have no effect if the config keeps default empty dicts. v1.4 / v1.5 configs continue to use the single `TriggerContext` as they always did.
+- The CUI uses standard Oxide CuiHelper - it works on both Oxide and Carbon (Carbon ships the same Cui namespace).
+
 ## [1.5.0] - 2026-05-16
 
 Performance, reliability, and framework expansion. All additive; no breaking changes.

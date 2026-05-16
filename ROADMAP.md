@@ -59,56 +59,78 @@ Declarative rule matrix (opt-in) with context providers:
 - Language stubs added: French, German, Chinese Simplified, Portuguese-Brazil
 - New docs: docs/performance.md, docs/carbon.md
 
-## Planned
+## Planned (CUI slice toward v2.0)
 
-### v1.4.0 - Ecosystem integration (target: 2026-07-02 forced wipe)
+The v2.0 marketplace-launch milestone calls for an in-game CUI admin panel. To avoid that being one large risky release, the CUI is sliced into four read-only-first then editable minors, one per monthly wipe cycle. Each minor also ships one non-CUI feature so the version has standalone value. v2.0 itself becomes pure non-code launch logistics.
 
-The Codefling-readiness push. Integrate with the plugins admins already run.
+### v1.6.0 - CUI foundation + Status tab (target: 2026-06-04 forced wipe)
 
-- **RaidableBases integration** via `[PluginReference]`. Auto-detect dome presence at victim position; flip to `InRaidableBaseDome` context. Configurable RaidableBases context name in `ContextProviders`.
-- **Convoy event support** - extend EventTracker with the Convoy plugin's spawn/kill hooks. Add `"Convoy"` to the default `Events` list.
-- **Armored Train event support** - same pattern, listen to Armored Train plugin's events.
-- **Discord webhook output** for `Reflects` and higher log levels. Configurable webhook URL, per-event-type filtering, rate limiting (Discord caps at 30/min). Useful for moderation channels watching for PvP attempts on PVE servers.
-- **Integration recipes** in `docs/integrations/` - one short page per popular plugin (RaidableBases, Convoy, Armored Train, PunishAttacker, ReflectDamage) showing how PVEDamageGuard composes with each.
+CUI:
+- CUI helper module: panel open/close, tab system, theme constants, perm gating
+- `/pdg ui` opens the panel for `pvedamageguard.admin` holders
+- Status tab (read-only) - renders the `/pdg` status text as a styled CUI panel
+- Auto-close on player disconnect; survives plugin reload (close-all on Unload)
+- `pdgui.tab <name>` console command handles tab switches
 
-### v1.5.0 - Performance, reliability, Carbon (target: 2026-08-06 forced wipe)
+Non-CUI:
+- Per-event-context override. New `PerEventContext` dict under both `EventTracker` and `GlobalEventTriggers`. Admins can map specific event names to specific contexts ("Bradley -> AtBradleyEvent", "Heli -> AtHeliEvent") with `TriggerContext` as fallback. Resolves the limitation called out in docs/integrations/armored-train.md.
 
-Invisible-but-essential work plus framework expansion.
+### v1.7.0 - Logging + History CUI tabs (target: 2026-07-02 forced wipe)
 
-- **Per-entity classification cache** keyed by `net.ID` for the entity's lifetime, cleared on `OnEntityKill`. The hot path currently calls `ClassifyEntity` and `ClassifySubtype` on every hit; caching avoids repeated type checks for the same entity. Benchmark target: < 50us per hit on a 100-player server.
-- **Self-test on startup** - validate that classification works against current Rust types by checking a few canonical type references (`BasePlayer`, `BaseNpc`, `BaseHelicopter`, `BradleyAPC`). If any fail, log an error and disable that branch gracefully rather than throwing per-hit exceptions.
-- **Hook timing telemetry** - optional Trace-level dump of `OnEntityTakeDamage` execution time (mean, p95, max over a rolling 1000-hit window). Surfaces via `/pdg history --timing`.
-- **GitHub Actions CI** - compile-check against pinned Oxide stub assemblies on every PR. Catches type-name drift before it ships.
-- **Carbon framework support** - test under Carbon, document the differences (mostly none; both support the same hooks), publish on Carbon's plugin index alongside uMod.
-- **More languages** - French (fr), German (de), Chinese (zh-CN), Portuguese-Brazil (pt-BR). Sourced from native-speaker contributors via PR.
+CUI:
+- Logging tab: live-streaming view of recent log lines, color-coded by level (None/Reflects/Scaled/All/Trace)
+- History tab: paginated view of the `_history` ring buffer with sortable columns (time, attacker, victim, damage, action, context)
+- Filter controls in both tabs: toggle log levels visible, search history by attacker/victim name
 
-### v2.0.0 - CUI admin panel + marketplace launch (target: 2026-09-03 forced wipe)
+Non-CUI:
+- Per-player damage statistics counters (damage dealt, reflected, taken from NPCs, taken from PvP). Persisted to `oxide/data/PVEDamageGuard/stats.json` with periodic writes.
+- `API_GetPlayerStats(BasePlayer)` public hook for integration with stats plugins.
 
-The major-version milestone. Justification for the version bump: substantial UX shift (in-game UI for non-technical admins) and external commitment (Codefling listing, support tier setup).
+### v1.8.0 - Rules tab (read-only browser) + custom NPC categories (target: 2026-08-06 forced wipe)
 
-- **In-game CUI admin panel** - opens with `/pdg ui`. Tabs: Status (current feature flags, active context, recent history), Rules (browse contexts and rules, toggle context provider settings), Scaling (slider controls for NPC->Player damage types and building grades), Logging (toggle log level and file output), History (live tail of last 50 hits). Read-write for admins with the `pvedamageguard.admin` perm.
-- **Codefling listing** at $15-20 one-time unlimited-server. Free uMod listing stays at the GitHub release. Codefling buyers get:
-  - Curated download (signed releases, no need to scrape GitHub)
-  - Priority support in a dedicated Discord channel
-  - Early-access patches the same Thursday as the forced wipe
-- **Battle-tested promise** - three consecutive monthly forced wipes survived without breakage between v1.2 (May 2026) and v2.0 (September 2026). If this promise fails, the v2.0 listing is held until it's met.
-- **Marketing assets** - listing copy, 3-5 screenshots of CUI panel and `/pdg test` output, a 60-second feature-tour GIF, one-page feature comparison vs DamageControl and TruePVE+DynamicPVP+ReflectDamage stack.
+CUI:
+- Rules tab: tree view of contexts -> rules with color-coded action types (green=allow, red=block, yellow=reflect, blue=scale)
+- Inheritance chain visualization (shows full Inherits walk)
+- "Active at my position" indicator highlighting which context resolves where the admin is standing
+
+Non-CUI:
+- Custom NPC category registration API: `API_RegisterCategory(string name, Func<BaseEntity, bool> matcher)`. Third-party plugins (custom NPC mods, Frontier-style packs) can register subtypes that flow through the existing classifier and rule matrix. Registered names appear in `/pdg test` output and are valid in rule matrix keys.
+
+### v1.9.0 - Editing CUI + Backpacks integration (target: 2026-09-03 forced wipe)
+
+CUI:
+- Rules tab edit mode (toggle): dropdowns to change action types, add/remove rules, edit context Inherits
+- Scaling tab: sliders for NPC->Player per-damage-type, NPC->Structure, BuildingGradeMultipliers; toggle buttons for boolean configs; dropdowns for Logging and TimeOfDaySource
+- Live config save with debounce; runs validation on every edit
+
+Non-CUI:
+- Backpacks-on-death integration via `[PluginReference]`. Detect popular Backpacks plugins (Backpacks by WhiteThunder, or Backpacks 4 by Whispers88) and respect "no drop in PVE zone" semantics. PVE servers commonly run one of these and want backpacks preserved through reflect-induced kills.
+
+### v2.0.0 - Codefling launch (target: 2026-10-01)
+
+Pure non-code. Pushed one month from the original September target so v1.6-v1.9 each get a full wipe cycle of real-world CUI use before the listing goes live.
+
+- Codefling listing at $15-20 one-time, unlimited-server
+- Free uMod listing remains; Codefling adds curated downloads + priority support + Discord channel
+- Five-wipe battle-tested promise (May v1.5 through September v1.9) verified
+- Marketing assets: 5-8 screenshots, 60-90s feature-tour GIF, comparison spreadsheet vs DamageControl and TruePVE+DynamicPVP+ReflectDamage stack
+- Support tier setup: Discord support channel, response-time SLO documented
+
+## Why slice CUI across four minors
+
+Single big v2.0 risk: CUI bugs that only surface under real-world load (open during heli combat, panel left open during plugin reload, edits while another admin is also editing, screen-resolution variance) would all hit on day one of the paid listing. Slicing means each tab gets a full wipe cycle of admin use before v2.0 ships, and reviewers see mature code at launch instead of a v2.0 that just rolled out.
+
+The tradeoff is one month of revenue deferred (October instead of September). Worth it for the much-reduced reputation risk.
 
 ## Post-2.0 (no fixed dates)
 
 These are real features but not gating for marketplace launch. They land when there's time, in response to user requests, or when an interesting third-party PR arrives.
 
-### v2.1 - Stats & observability
-- **`/pdg stats <player>`** - per-player damage-dealt, damage-reflected, damage-taken-from-NPCs, damage-taken-from-PvP counters.
-- **`/pdg stats top [N]`** - leaderboards: top damage dealers, top reflectors, top NPC slayers.
-- **Stats persistence** to `oxide/data/PVEDamageGuard/stats.json` with periodic writes.
-- **`API_GetPlayerStats(BasePlayer)`** for integration with stat plugins (PlayerStats, ServerInfo, Discord stat bots).
+### v2.1 - Leaderboard tooling
+- **`/pdg stats top [N]`** - leaderboards: top damage dealers, top reflectors, top NPC slayers. (Per-player counters and `API_GetPlayerStats` already shipped in v1.7.)
+- **Top-damage Discord weekly digest** via existing webhook infrastructure.
 
-### v2.2 - Custom NPC category registration API
-- **`API_RegisterCategory(string name, Func<BaseEntity, bool> matcher)`** - lets other plugins register custom subtype names backed by their own classification logic (e.g. a Frontier mod registering `FrontierBandit` for its custom NPCs).
-- **Composition**: registered matchers run after built-in `ClassifySubtype` checks; first match wins. Registered names appear in `/pdg test` output and rule matrix lookups.
-
-### v2.3 and beyond - TBD
+### v2.2 and beyond - TBD
 Driven by user feedback after v2.0 launch. Likely candidates: webhook plug-ins beyond Discord (Slack, generic HTTP POST), per-context damage budgets ("PvP zone deals at most X total damage per hour"), historical heatmaps of where most PvP happens, NPC behavior tweaks (e.g. scientist morale, retreat radius) if Facepunch exposes hooks.
 
 ## Won't do
