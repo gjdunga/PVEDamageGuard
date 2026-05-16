@@ -2,6 +2,34 @@
 
 All notable changes to PVEDamageGuard are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning is [SemVer](https://semver.org/).
 
+## [1.3.0] - 2026-05-16
+
+Onboarding release. Reduces friction for new admins and Damage Control migrators with config import, presets, validation, and an interactive help system. No breaking changes; all additions are additive commands and a passive validation pass.
+
+### Added
+
+- **`/pdg import damagecontrol`** - reads `oxide/config/DamageControl.json` and maps compatible fields into PVEDamageGuard's config. Backs up the current PDG config to `PVEDamageGuard.backup.YYYYMMDDHHMMSS.json` first. Maps: per-victim damage tables (APC/Heli/Bear/Wolf/etc -> PerVictimSubtypeScaling), Building_Grade_Multipliers, Bypasses.Heli_bypass (-> PerAttackerStructureScaling[PatrolHelicopter]), Time.Time_Type, and the four overlapping Time_Multipliers categories. Reports per-mapping success and explicitly skipped fields (Animal_Time, Heli_Time, Bradley_Time, Other_Time, Building per-piece) with rationale.
+- **`/pdg preset <name>`** - applies a known-good complete config. Four presets ship:
+  - **pvepure** - block all PvP, severe NPC damage scaling (0.25x default, 0.1x bullet), full building invulnerability to NPCs.
+  - **pvereflect** - reflect PvP at 1.0x, NPC damage scaled to 0.5x default with 0.25x bullet, NPC->Structure at 0.5x.
+  - **pvevehicleraids** - reflect PvP, NPCs cannot damage structures EXCEPT PatrolHelicopter and BradleyAPC (both 1.0x, preserving the heli/Bradley raid event experience).
+  - **pvphoursevents** - PvP blocked by default, rule matrix enabled with Default+AtPvpEvent contexts and EventTracker active; PvP only allowed near Bradley/Heli/Cargo.
+- **`/pdg validate`** - runs the config validator on demand and reports issues with line-by-line detail.
+- **`/pdg help [subcommand]`** - interactive help. With no arg, lists all subcommands with one-line descriptions. With a subcommand arg, prints full usage and an example. Closest practical equivalent to tab-completion since Rust chat does not support client-side completion.
+- **Config validation at load.** Runs after `RebuildCaches` in `OnServerInitialized` and on every `/pdg reload`. Checks: EnvironmentalDamageTypes parse to `Rust.DamageType`, all scaling multipliers in `[0, 100]`, TOD arrays have 24 elements, TimeOfDaySource is `Game` or `Real`, rule matrix Inherits chains have no cycles or dangling references, rule action strings parse, provider target context names exist. Issues surface as `PrintWarning` lines at load and in the `/pdg` status block.
+- **Status block now reports `Config issues: N`** so admins notice validation problems without needing to scroll back through console output.
+
+### Changed
+
+- `CmdReload` now also runs validation and reports `ConfigReloadedWithIssues` if any are found.
+- `UsageRoot` lang string expanded to include the four new subcommands.
+
+### Notes
+
+- The DamageControl importer is one-way and does its best with the v2.5.14 schema. Fields without a direct PVEDamageGuard equivalent (per-piece building protection, separate animal/heli/Bradley/other time multipliers) are explicitly skipped with a report line referencing the migration mapping in `docs/configuration.md`. Use the backup file to roll back if the result is not what you wanted.
+- Presets are deliberately complete config snapshots, not deltas. Applying a preset overwrites your existing tuning. Recommended workflow: `/pdg preset <closest-match>`, then iterate from there.
+- Validation is non-fatal. Issues are warnings only; the plugin continues to run with whatever config it managed to load.
+
 ## [1.2.0] - 2026-05-16
 
 Architectural addition: optional declarative rule matrix as an alternative to the case-based scaling logic. Context providers integrate with ZoneManager and a built-in event tracker so rules switch automatically when players enter PvP zones or get within range of Bradley/Heli/Cargo events. Adds dry-run damage simulation and a history ring buffer for live diagnostics. Fully backward compatible: existing v1.0.x and v1.1.x configs continue to use the legacy scaling path because `RuleMatrix.Enabled` defaults to `false`.

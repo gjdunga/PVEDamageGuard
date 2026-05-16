@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Converters;
+using Newtonsoft.Json.Linq;
 using Oxide.Core;
 using Oxide.Core.Libraries.Covalence;
 using Oxide.Core.Plugins;
@@ -11,8 +13,8 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("PVE Damage Guard", "Gabriel Dungan (DunganSoft Technologies)", "1.2.0")]
-    [Description("Future-proof NPC classifier with optional declarative rule matrix, per-attacker/per-victim damage scaling, building grade and time-of-day modifiers, ZoneManager and event-aware context switching, reflect-as-a-service, and admin diagnostics for PVE Rust servers.")]
+    [Info("PVE Damage Guard", "Gabriel Dungan (DunganSoft Technologies)", "1.3.0")]
+    [Description("Future-proof NPC classifier with optional declarative rule matrix, per-attacker/per-victim damage scaling, building grade and time-of-day modifiers, ZoneManager and event-aware context switching, reflect-as-a-service, Damage Control config import, preset configurations, config validation, and admin diagnostics for PVE Rust servers.")]
     public class PVEDamageGuard : CovalencePlugin
     {
         [PluginReference] private Plugin TruePVE;
@@ -458,6 +460,7 @@ namespace Oxide.Plugins
         private void OnServerInitialized()
         {
             RebuildCaches();
+            ValidateConfig();
             DetectCompanions();
             // Seed event tracker with currently-spawned event entities
             if (_ruleMatrixEnabled && _config.RuleMatrix.ContextProviders.EventTracker.Enabled)
@@ -1151,6 +1154,447 @@ namespace Oxide.Plugins
 
         #endregion
 
+        #region Onboarding (v1.3)
+
+        // Validation - run after RebuildCaches; results surface as console warnings and in /pdg status.
+        private readonly List<string> _configIssues = new List<string>();
+
+        private void ValidateConfig()
+        {
+            _configIssues.Clear();
+
+            // Environmental damage types
+            foreach (var s in _config.EnvironmentalDamageTypes)
+                if (!Enum.TryParse<DamageType>(s, true, out _))
+                    _configIssues.Add($"EnvironmentalDamageTypes: '{s}' is not a valid DamageType");
+
+            // Scaling values in [0, 100]
+            ValidateMultBounds(_configIssues, "NpcToPlayerScaling", _config.NpcToPlayerScaling);
+            ValidateMultBounds(_configIssues, "PerAttackerStructureScaling", _config.PerAttackerStructureScaling);
+            ValidateMultBounds(_configIssues, "BuildingGradeMultipliers", _config.BuildingGradeMultipliers);
+            if (_config.NpcToStructureScaling < 0f || _config.NpcToStructureScaling > 100f)
+                _configIssues.Add($"NpcToStructureScaling: {_config.NpcToStructureScaling} out of [0, 100]");
+            if (_config.ReflectMultiplier < 0f || _config.ReflectMultiplier > 100f)
+                _configIssues.Add($"ReflectMultiplier: {_config.ReflectMultiplier} out of [0, 100]");
+
+            // Per-victim subtype scaling (nested)
+            if (_config.PerVictimSubtypeScaling != null)
+                foreach (var sub in _config.PerVictimSubtypeScaling)
+                    ValidateMultBounds(_configIssues, $"PerVictimSubtypeScaling[{sub.Key}]", sub.Value);
+
+            // TOD arrays
+            if (_config.TimeOfDayMultipliers != null)
+                foreach (var entry in _config.TimeOfDayMultipliers)
+                    if (entry.Value == null || entry.Value.Length != 24)
+                        _configIssues.Add($"TimeOfDayMultipliers[{entry.Key}]: must have 24 elements (got {entry.Value?.Length ?? 0})");
+
+            // TimeOfDaySource
+            if (!string.Equals(_config.TimeOfDaySource, "Game", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(_config.TimeOfDaySource, "Real", StringComparison.OrdinalIgnoreCase))
+                _configIssues.Add($"TimeOfDaySource: must be 'Game' or 'Real' (got '{_config.TimeOfDaySource}')");
+
+            // Rule matrix
+            if (_config.RuleMatrix != null && _config.RuleMatrix.Enabled)
+            {
+                var contexts = _config.RuleMatrix.Contexts ?? new Dictionary<string, ContextConfig>();
+
+                if (!string.IsNullOrEmpty(_config.RuleMatrix.DefaultContext)
+                    && !contexts.ContainsKey(_config.RuleMatrix.DefaultContext))
+                    _configIssues.Add($"RuleMatrix.DefaultContext '{_config.RuleMatrix.DefaultContext}' does not exist in Contexts");
+
+                foreach (var ctx in contexts)
+                {
+                    // Inherits chain - detect cycles and dangling references
+                    var visited = new HashSet<string>();
+                    var name = ctx.Key;
+                    while (name != null)
+                    {
+                        if (!visited.Add(name))
+                        {
+                            _configIssues.Add($"RuleMatrix.Contexts[{ctx.Key}]: Inherits cycle through '{name}'");
+                            break;
+                        }
+                        if (!contexts.TryGetValue(name, out var c)) break;
+                        if (c.Inherits != null && !contexts.ContainsKey(c.Inherits))
+                        {
+                            _configIssues.Add($"RuleMatrix.Contexts[{ctx.Key}]: Inherits target '{c.Inherits}' does not exist");
+                            break;
+                        }
+                        name = c.Inherits;
+                    }
+
+                    // Rule action parsing
+                    if (ctx.Value.Rules != null)
+                        foreach (var rule in ctx.Value.Rules)
+                            if (ParseRuleAction(rule.Value) == null)
+                                _configIssues.Add($"RuleMatrix.Contexts[{ctx.Key}].Rules['{rule.Key}']: invalid action '{rule.Value}'");
+                }
+
+                // Provider target context names
+                var providers = _config.RuleMatrix.ContextProviders;
+                if (providers?.ZoneManager?.ZoneFlagToContext != null)
+                    foreach (var entry in providers.ZoneManager.ZoneFlagToContext)
+                        if (!contexts.ContainsKey(entry.Value))
+                            _configIssues.Add($"RuleMatrix.ContextProviders.ZoneManager: flag '{entry.Key}' targets non-existent context '{entry.Value}'");
+                if (providers?.EventTracker?.Enabled == true
+                    && !string.IsNullOrEmpty(providers.EventTracker.TriggerContext)
+                    && !contexts.ContainsKey(providers.EventTracker.TriggerContext))
+                    _configIssues.Add($"RuleMatrix.ContextProviders.EventTracker.TriggerContext '{providers.EventTracker.TriggerContext}' does not exist");
+            }
+
+            if (_configIssues.Count > 0)
+            {
+                PrintWarning($"Config validation found {_configIssues.Count} issue(s):");
+                foreach (var issue in _configIssues) PrintWarning($"  - {issue}");
+            }
+        }
+
+        private static void ValidateMultBounds(List<string> issues, string path, Dictionary<string, float> dict)
+        {
+            if (dict == null) return;
+            foreach (var kv in dict)
+                if (kv.Value < 0f || kv.Value > 100f)
+                    issues.Add($"{path}['{kv.Key}']: {kv.Value} out of [0, 100]");
+        }
+
+        // Presets - admin applies a known-good baseline config.
+        private void ApplyPreset(string name)
+        {
+            switch (name.ToLowerInvariant())
+            {
+                case "pvepure":
+                    _config.ReflectPvpEnabled = false;
+                    _config.BlockPvpIfNotReflecting = true;
+                    _config.AllowTeammateDamage = false;
+                    _config.NpcToPlayerScaling = new Dictionary<string, float>
+                    {
+                        ["Default"] = 0.25f, ["Bullet"] = 0.1f, ["Slash"] = 0.25f, ["Stab"] = 0.25f,
+                        ["Bite"] = 0.25f, ["Blunt"] = 0.25f, ["Explosion"] = 0.25f, ["Arrow"] = 0.25f,
+                        ["Generic"] = 1.0f
+                    };
+                    _config.NpcToStructureScaling = 0f;
+                    _config.PerAttackerStructureScaling = new Dictionary<string, float>();
+                    if (_config.RuleMatrix != null) _config.RuleMatrix.Enabled = false;
+                    break;
+
+                case "pvereflect":
+                    _config.ReflectPvpEnabled = true;
+                    _config.ReflectMultiplier = 1.0f;
+                    _config.BlockPvpIfNotReflecting = true;
+                    _config.AllowTeammateDamage = false;
+                    _config.NpcToPlayerScaling = new Dictionary<string, float>
+                    {
+                        ["Default"] = 0.5f, ["Bullet"] = 0.25f, ["Slash"] = 0.5f, ["Stab"] = 0.5f,
+                        ["Bite"] = 0.5f, ["Blunt"] = 0.5f, ["Explosion"] = 0.5f, ["Arrow"] = 0.5f,
+                        ["Generic"] = 1.0f
+                    };
+                    _config.NpcToStructureScaling = 0.5f;
+                    _config.PerAttackerStructureScaling = new Dictionary<string, float>();
+                    if (_config.RuleMatrix != null) _config.RuleMatrix.Enabled = false;
+                    break;
+
+                case "pvevehicleraids":
+                    _config.ReflectPvpEnabled = true;
+                    _config.ReflectMultiplier = 1.0f;
+                    _config.BlockPvpIfNotReflecting = true;
+                    _config.NpcToPlayerScaling = new Dictionary<string, float>
+                    {
+                        ["Default"] = 0.5f, ["Bullet"] = 0.25f, ["Explosion"] = 0.5f
+                    };
+                    _config.NpcToStructureScaling = 0f; // block by default
+                    _config.PerAttackerStructureScaling = new Dictionary<string, float>
+                    {
+                        ["Default"] = 0f,
+                        ["PatrolHelicopter"] = 1.0f,
+                        ["BradleyAPC"] = 1.0f
+                    };
+                    if (_config.RuleMatrix != null) _config.RuleMatrix.Enabled = false;
+                    break;
+
+                case "pvphoursevents":
+                    _config.ReflectPvpEnabled = false;
+                    _config.BlockPvpIfNotReflecting = true;
+                    _config.AllowTeammateDamage = false;
+                    _config.NpcToPlayerScaling = new Dictionary<string, float>
+                    {
+                        ["Default"] = 0.5f, ["Bullet"] = 0.25f
+                    };
+                    _config.NpcToStructureScaling = 0.5f;
+                    if (_config.RuleMatrix == null) _config.RuleMatrix = new RuleMatrixConfig();
+                    _config.RuleMatrix.Enabled = true;
+                    _config.RuleMatrix.DefaultContext = "Default";
+                    if (!_config.RuleMatrix.Contexts.ContainsKey("Default"))
+                        _config.RuleMatrix.Contexts["Default"] = new ContextConfig
+                        {
+                            Description = "Default PVE - no PvP",
+                            Rules = new Dictionary<string, string>()
+                        };
+                    _config.RuleMatrix.Contexts["Default"].Rules["RealPlayer -> RealPlayer"] = "block";
+                    if (!_config.RuleMatrix.Contexts.ContainsKey("AtPvpEvent"))
+                        _config.RuleMatrix.Contexts["AtPvpEvent"] = new ContextConfig
+                        {
+                            Description = "Event nearby - PvP enabled",
+                            Inherits = "Default",
+                            Rules = new Dictionary<string, string>()
+                        };
+                    _config.RuleMatrix.Contexts["AtPvpEvent"].Rules["RealPlayer -> RealPlayer"] = "allow";
+                    if (_config.RuleMatrix.ContextProviders != null
+                        && _config.RuleMatrix.ContextProviders.EventTracker != null)
+                    {
+                        _config.RuleMatrix.ContextProviders.EventTracker.Enabled = true;
+                        _config.RuleMatrix.ContextProviders.EventTracker.TriggerContext = "AtPvpEvent";
+                    }
+                    break;
+
+                default:
+                    throw new ArgumentException("unknown preset: " + name);
+            }
+        }
+
+        private static readonly string[] _presetNames = { "pvepure", "pvereflect", "pvevehicleraids", "pvphoursevents" };
+
+        // Import from Damage Control - reads oxide/config/DamageControl.json, maps fields, applies.
+        private (int imported, int skipped, List<string> report) ImportFromDamageControl()
+        {
+            var report = new List<string>();
+            int imported = 0, skipped = 0;
+            var dcPath = Path.Combine(Interface.Oxide.ConfigDirectory, "DamageControl.json");
+            if (!File.Exists(dcPath))
+            {
+                report.Add($"DamageControl.json not found at {dcPath} - nothing to import.");
+                return (imported, skipped, report);
+            }
+
+            // Backup our current config first
+            var pdgPath = Path.Combine(Interface.Oxide.ConfigDirectory, "PVEDamageGuard.json");
+            var backupPath = Path.Combine(Interface.Oxide.ConfigDirectory, $"PVEDamageGuard.backup.{DateTime.Now:yyyyMMddHHmmss}.json");
+            if (File.Exists(pdgPath))
+            {
+                try { File.Copy(pdgPath, backupPath, true); report.Add($"Backed up current config to {backupPath}"); }
+                catch (Exception e) { report.Add($"Backup failed: {e.Message}"); }
+            }
+
+            JObject dc;
+            try { dc = JObject.Parse(File.ReadAllText(dcPath)); }
+            catch (Exception e) { report.Add($"Failed to parse DamageControl.json: {e.Message}"); return (imported, skipped, report); }
+
+            // Per-victim damage scaling (DC stores a flat dict per victim)
+            var victimMap = new Dictionary<string, string>
+            {
+                ["APC_Multipliers"]         = "BradleyAPC",
+                ["Bear_Multipliers"]        = "Bear",
+                ["Boar_Multipliers"]        = "Boar",
+                ["Chicken_Multipliers"]     = "Chicken",
+                ["Heli_Multipliers"]        = "PatrolHelicopter",
+                ["Horse_Multipliers"]       = "Horse",
+                ["RidableHorse_Multipliers"]= "RidableHorse",
+                ["SAMSite_Multipliers"]     = "SamSite",
+                ["Minicopter_Multipliers"]  = "Minicopter",
+                ["Scrapcopter_Multipliers"] = "ScrapHelicopter",
+                ["Scientist_Multipliers"]   = "Scientist",
+                ["Stag_Multipliers"]        = "Stag",
+                ["Wolf_Multipliers"]        = "Wolf",
+                ["Zombie_Multipliers"]      = "Zombie",
+                ["Balloon_Multipliers"]     = "HotAirBalloon"
+            };
+            foreach (var entry in victimMap)
+            {
+                if (dc[entry.Key] is JObject dmgs)
+                {
+                    var dict = new Dictionary<string, float>();
+                    foreach (var prop in dmgs.Properties())
+                    {
+                        // DC uses lowercase damage type names; PDG uses PascalCase
+                        var pdgType = CapitalizeDamageType(prop.Name);
+                        if (float.TryParse(prop.Value.ToString(), System.Globalization.NumberStyles.Float,
+                                           System.Globalization.CultureInfo.InvariantCulture, out var v))
+                            dict[pdgType] = v;
+                    }
+                    if (dict.Count > 0)
+                    {
+                        if (_config.PerVictimSubtypeScaling == null)
+                            _config.PerVictimSubtypeScaling = new Dictionary<string, Dictionary<string, float>>();
+                        _config.PerVictimSubtypeScaling[entry.Value] = dict;
+                        imported++;
+                        report.Add($"Mapped {entry.Key} -> PerVictimSubtypeScaling[\"{entry.Value}\"] ({dict.Count} damage types)");
+                    }
+                }
+            }
+
+            // Player_Multipliers - this maps closest to NpcToPlayerScaling but the semantics differ
+            // (DC: applied when player TAKES damage; PDG: applied when NPC ATTACKS player).
+            if (dc["Player_Multipliers"] is JObject playerDmgs)
+            {
+                var dict = new Dictionary<string, float>();
+                foreach (var prop in playerDmgs.Properties())
+                {
+                    var pdgType = CapitalizeDamageType(prop.Name);
+                    if (float.TryParse(prop.Value.ToString(), System.Globalization.NumberStyles.Float,
+                                       System.Globalization.CultureInfo.InvariantCulture, out var v))
+                        dict[pdgType] = v;
+                }
+                if (dict.Count > 0)
+                {
+                    _config.NpcToPlayerScaling = dict;
+                    imported++;
+                    report.Add("Mapped Player_Multipliers -> NpcToPlayerScaling (semantics: DC was victim-side, PDG is attacker-side; same numeric values, different meaning).");
+                }
+            }
+
+            // BuildingBlock_Multipliers - no direct equivalent. Take the average as a single NpcToStructureScaling.
+            if (dc["BuildingBlock_Multipliers"] is JObject bbDmgs)
+            {
+                float sum = 0f; int n = 0;
+                foreach (var prop in bbDmgs.Properties())
+                    if (float.TryParse(prop.Value.ToString(), System.Globalization.NumberStyles.Float,
+                                       System.Globalization.CultureInfo.InvariantCulture, out var v))
+                    { sum += v; n++; }
+                if (n > 0)
+                {
+                    _config.NpcToStructureScaling = sum / n;
+                    imported++;
+                    report.Add($"Averaged BuildingBlock_Multipliers ({n} entries) -> NpcToStructureScaling = {_config.NpcToStructureScaling:F2}");
+                }
+                else
+                {
+                    skipped++;
+                    report.Add("SKIPPED BuildingBlock_Multipliers: no parseable values.");
+                }
+            }
+
+            // Building grade multipliers
+            if (dc["Building_Grade_Multipliers"] is JObject grades)
+            {
+                if (_config.BuildingGradeMultipliers == null)
+                    _config.BuildingGradeMultipliers = new Dictionary<string, float>();
+                foreach (var prop in grades.Properties())
+                    if (float.TryParse(prop.Value.ToString(), System.Globalization.NumberStyles.Float,
+                                       System.Globalization.CultureInfo.InvariantCulture, out var v))
+                        _config.BuildingGradeMultipliers[prop.Name] = v;
+                imported++;
+                report.Add("Mapped Building_Grade_Multipliers -> BuildingGradeMultipliers");
+            }
+
+            // Heli bypass
+            if (dc["Bypasses"] is JObject bypasses)
+            {
+                var hb = bypasses["Heli_bypass"];
+                if (hb != null && hb.Type == JTokenType.Boolean && hb.Value<bool>())
+                {
+                    if (_config.PerAttackerStructureScaling == null)
+                        _config.PerAttackerStructureScaling = new Dictionary<string, float>();
+                    _config.PerAttackerStructureScaling["PatrolHelicopter"] = 1.0f;
+                    imported++;
+                    report.Add("Mapped Bypasses.Heli_bypass=true -> PerAttackerStructureScaling[PatrolHelicopter] = 1.0");
+                }
+            }
+
+            // Time source
+            if (dc["Time"] is JObject timeBlock)
+            {
+                var tt = timeBlock.Value<string>("Time_Type");
+                if (!string.IsNullOrEmpty(tt))
+                {
+                    _config.TimeOfDaySource = tt.Equals("real", StringComparison.OrdinalIgnoreCase) ? "Real" : "Game";
+                    imported++;
+                    report.Add($"Mapped Time.Time_Type='{tt}' -> TimeOfDaySource={_config.TimeOfDaySource}");
+                }
+            }
+
+            // Time multipliers - DC has 8 categories, PDG has 4. Map the close ones.
+            var timeMap = new Dictionary<string, string>
+            {
+                ["Global_Time_Multipliers"]   = TodGlobal,
+                ["Player_Time_Multipliers"]   = TodPvp,
+                ["NPC_Time_Multipliers"]      = TodNpcToPlayer,
+                ["Building_Time_Multipliers"] = TodNpcToStructure
+            };
+            foreach (var entry in timeMap)
+            {
+                if (dc[entry.Key] is JObject hours)
+                {
+                    var arr = new float[24];
+                    for (int i = 0; i < 24; i++) arr[i] = 1f;
+                    int set = 0;
+                    foreach (var prop in hours.Properties())
+                    {
+                        if (!int.TryParse(prop.Name.Trim(), out var h)) continue;
+                        if (h < 0 || h > 23) continue;
+                        if (float.TryParse(prop.Value.ToString(), System.Globalization.NumberStyles.Float,
+                                           System.Globalization.CultureInfo.InvariantCulture, out var v))
+                        { arr[h] = v; set++; }
+                    }
+                    if (set > 0)
+                    {
+                        if (_config.TimeOfDayMultipliers == null)
+                            _config.TimeOfDayMultipliers = new Dictionary<string, float[]>();
+                        _config.TimeOfDayMultipliers[entry.Value] = arr;
+                        imported++;
+                        report.Add($"Mapped {entry.Key} ({set} hours) -> TimeOfDayMultipliers[\"{entry.Value}\"]");
+                    }
+                }
+            }
+
+            // Unmapped DC fields
+            var unmapped = new[]
+            {
+                "Animal_Time_Multipliers", "Heli_Time_Multipliers", "Bradley_Time_Multipliers", "Other_Time_Multipliers",
+                "Building"
+            };
+            foreach (var u in unmapped)
+            {
+                if (dc[u] != null)
+                {
+                    skipped++;
+                    report.Add($"SKIPPED {u}: no direct PVEDamageGuard equivalent. See docs/configuration.md for the migration mapping table.");
+                }
+            }
+
+            return (imported, skipped, report);
+        }
+
+        private static string CapitalizeDamageType(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return name;
+            // Special cases: RadiationExposure, ColdExposure, ElectricShock have multi-word forms
+            var lower = name.ToLowerInvariant();
+            switch (lower)
+            {
+                case "radiationexposure": return "RadiationExposure";
+                case "coldexposure":      return "ColdExposure";
+                case "electricshock":     return "ElectricShock";
+                case "antivehicle":       return "AntiVehicle";
+                case "fun_water":         return "Fun_Water";
+                default:
+                    return char.ToUpperInvariant(name[0]) + name.Substring(1).ToLowerInvariant();
+            }
+        }
+
+        // Help system - per-subcommand help text.
+        private string GetHelpFor(string subcommand)
+        {
+            switch (subcommand?.ToLowerInvariant())
+            {
+                case null:
+                case "":
+                    return Lang("HelpRoot");
+                case "reload":   return Lang("HelpReload");
+                case "log":      return Lang("HelpLog");
+                case "logfile":  return Lang("HelpLogFile");
+                case "scale":    return Lang("HelpScale");
+                case "hour":     return Lang("HelpHour");
+                case "context":  return Lang("HelpContext");
+                case "history":  return Lang("HelpHistory");
+                case "test":     return Lang("HelpTest");
+                case "import":   return Lang("HelpImport");
+                case "preset":   return string.Format(Lang("HelpPreset"), string.Join(", ", _presetNames));
+                case "help":     return Lang("HelpHelp");
+                default:         return string.Format(Lang("HelpUnknown"), subcommand);
+            }
+        }
+
+        #endregion
+
         #region Existing helpers
 
         private bool IsEnvironmental(HitInfo info)
@@ -1279,6 +1723,10 @@ namespace Oxide.Plugins
                 case "test":    CmdTest(player, args); break;
                 case "history": CmdHistory(player, args); break;
                 case "context": CmdContext(player); break;
+                case "preset":  CmdPreset(player, args); break;
+                case "import":  CmdImport(player, args); break;
+                case "help":    CmdHelp(player, args); break;
+                case "validate": CmdValidate(player); break;
                 default:
                     player.Reply(Lang("UsageRoot", player.Id));
                     break;
@@ -1297,15 +1745,77 @@ namespace Oxide.Plugins
                 _config.Logging, _config.LogToFile, _yieldToTruePve,
                 _todEnabled, _victimScalingEnabled, _buildingGradeEnabled, _perAttackerStructureEnabled, _ruleMatrixEnabled,
                 GetCurrentHour(), _config.TimeOfDaySource,
-                _activeEvents.Count));
+                _activeEvents.Count, _configIssues.Count));
         }
 
         private void CmdReload(IPlayer player)
         {
             LoadConfig();
             RebuildCaches();
+            ValidateConfig();
             DetectCompanions();
-            player.Reply(Lang("ConfigReloaded", player.Id));
+            if (_configIssues.Count > 0)
+                player.Reply(string.Format(Lang("ConfigReloadedWithIssues", player.Id), _configIssues.Count));
+            else
+                player.Reply(Lang("ConfigReloaded", player.Id));
+        }
+
+        private void CmdPreset(IPlayer player, string[] args)
+        {
+            if (args.Length < 2)
+            {
+                player.Reply(string.Format(Lang("PresetUsage", player.Id), string.Join(", ", _presetNames)));
+                return;
+            }
+            var name = args[1].ToLowerInvariant();
+            if (Array.IndexOf(_presetNames, name) < 0)
+            {
+                player.Reply(string.Format(Lang("PresetUnknown", player.Id), name, string.Join(", ", _presetNames)));
+                return;
+            }
+            try
+            {
+                ApplyPreset(name);
+                SaveConfig();
+                RebuildCaches();
+                ValidateConfig();
+                player.Reply(string.Format(Lang("PresetApplied", player.Id), name));
+            }
+            catch (Exception e)
+            {
+                player.Reply($"Failed to apply preset '{name}': {e.Message}");
+            }
+        }
+
+        private void CmdImport(IPlayer player, string[] args)
+        {
+            if (args.Length < 2 || !args[1].Equals("damagecontrol", StringComparison.OrdinalIgnoreCase))
+            {
+                player.Reply(Lang("ImportUsage", player.Id));
+                return;
+            }
+            var result = ImportFromDamageControl();
+            SaveConfig();
+            RebuildCaches();
+            ValidateConfig();
+            var header = string.Format(Lang("ImportDone", player.Id), result.imported, result.skipped);
+            player.Reply(header + "\n" + string.Join("\n", result.report));
+        }
+
+        private void CmdHelp(IPlayer player, string[] args)
+        {
+            string sub = args.Length >= 2 ? args[1] : null;
+            player.Reply(GetHelpFor(sub));
+        }
+
+        private void CmdValidate(IPlayer player)
+        {
+            ValidateConfig();
+            if (_configIssues.Count == 0)
+                player.Reply(Lang("ValidateClean", player.Id));
+            else
+                player.Reply(string.Format(Lang("ValidateIssues", player.Id), _configIssues.Count)
+                             + "\n  - " + string.Join("\n  - ", _configIssues));
         }
 
         private void CmdLog(IPlayer player, string[] args)
@@ -1559,7 +2069,28 @@ namespace Oxide.Plugins
             {
                 ["NoPermission"]    = "You do not have permission to use this command.",
                 ["ConfigReloaded"]  = "PVEDamageGuard config reloaded.",
-                ["UsageRoot"]       = "Usage: /pdg [reload | log <level> | logfile <on|off> | scale <type> <mult> | hour | context | history [N] | test [fire <type> <amount>]]",
+                ["ConfigReloadedWithIssues"] = "PVEDamageGuard config reloaded with {0} validation issue(s). Run /pdg validate for details.",
+                ["UsageRoot"]       = "Usage: /pdg [reload | log <level> | logfile <on|off> | scale <type> <mult> | hour | context | history [N] | test [fire <type> <amount>] | preset <name> | import damagecontrol | validate | help [subcommand]]",
+                ["PresetUsage"]     = "Usage: /pdg preset <name>. Available presets: {0}.",
+                ["PresetUnknown"]   = "Unknown preset '{0}'. Available: {1}.",
+                ["PresetApplied"]   = "Applied preset '{0}'. Config saved and reloaded. Review with /pdg status.",
+                ["ImportUsage"]     = "Usage: /pdg import damagecontrol. Reads oxide/config/DamageControl.json and maps compatible settings into PVEDamageGuard.",
+                ["ImportDone"]      = "Damage Control import complete. Imported: {0}, skipped: {1}.",
+                ["ValidateClean"]   = "Config validation passed. No issues found.",
+                ["ValidateIssues"]  = "Config validation found {0} issue(s):",
+                ["HelpRoot"]        = "PVEDamageGuard subcommands. Use /pdg help <subcommand> for details on each:\n  reload   - reload config from disk\n  log      - set console log verbosity\n  logfile  - toggle file logging\n  scale    - tune NPC->Player damage multiplier\n  hour     - show current hour and TOD multipliers\n  context  - show active rule-matrix context\n  history  - show recent classified hits\n  test     - aim and classify, or 'test fire <type> <amount>' to dry-run\n  preset   - apply a known-good preset config\n  import   - import from Damage Control config\n  validate - check config for issues\n  help     - this help",
+                ["HelpReload"]      = "/pdg reload - reload config and lang from disk, re-run validation. Equivalent to oxide.reload PVEDamageGuard.",
+                ["HelpLog"]         = "/pdg log <level> - set log verbosity. Levels: None (silent), Reflects (only PvP reflects), Scaled (every modified hit), All (also passthroughs), Trace (full HitInfo dump). Example: /pdg log Reflects",
+                ["HelpLogFile"]     = "/pdg logfile <on|off> - toggle whether log lines are also written to oxide/logs/PVEDamageGuard/damage-YYYY-MM-DD.txt. Example: /pdg logfile on",
+                ["HelpScale"]       = "/pdg scale <DamageType> <multiplier 0-100> - tune the NPC->Player scaling for one damage type. Persists to config. Example: /pdg scale Bullet 0.1",
+                ["HelpHour"]        = "/pdg hour - report current hour from TimeOfDaySource and all four TOD multipliers (Global, PvP, NpcToPlayer, NpcToStructure).",
+                ["HelpContext"]     = "/pdg context - show the rule-matrix context active at your current position. Only meaningful when RuleMatrix.Enabled=true.",
+                ["HelpHistory"]     = "/pdg history [N] - show the last N classified hits (default 10, max 100). Filled regardless of console log level.",
+                ["HelpTest"]        = "/pdg test - aim at an entity, see classification + active rule. /pdg test fire <DamageType> <amount> - dry-run a synthetic hit and report final damage without applying it. Example: /pdg test fire Bullet 100",
+                ["HelpImport"]      = "/pdg import damagecontrol - read oxide/config/DamageControl.json and map compatible settings into PVEDamageGuard's config. Backs up the current config first.",
+                ["HelpPreset"]      = "/pdg preset <name> - apply a known-good config. Available presets: {0}. Each preset is a complete config snapshot; existing fine-tuning is overwritten.",
+                ["HelpHelp"]        = "/pdg help [subcommand] - show this help, or detail on one subcommand.",
+                ["HelpUnknown"]     = "Unknown subcommand '{0}'. Run /pdg help for the list.",
                 ["LogCurrent"]      = "Current log level: {0}. Usage: /pdg log <None|Reflects|Scaled|All|Trace>",
                 ["LogUnknown"]      = "Unknown log level '{0}'. Valid: None, Reflects, Scaled, All, Trace.",
                 ["LogSet"]          = "Log level set to {0}.",
@@ -1600,8 +2131,8 @@ namespace Oxide.Plugins
                     "  NPC->Player default: {5:F2}, NPC->Structure default: {6:F2}, Traps as PvP: {7}\n" +
                     "  Logging: {8} (file={9}), Yield to TruePVE: {10}\n" +
                     "  Features: TOD={11}, VictimSubtype={12}, BuildingGrade={13}, PerAttackerStruct={14}, RuleMatrix={15}\n" +
-                    "  Current hour: {16} ({17}), Tracked events: {18}\n" +
-                    "  Commands: /pdg reload | log <lvl> | logfile <on|off> | scale <type> <mult> | hour | context | history [N] | test [fire <type> <amount>]"
+                    "  Current hour: {16} ({17}), Tracked events: {18}, Config issues: {19}\n" +
+                    "  Commands: /pdg reload | log | logfile | scale | hour | context | history | test | preset | import | validate | help"
             }, this);
         }
 

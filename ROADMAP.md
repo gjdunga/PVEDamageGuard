@@ -28,17 +28,16 @@ Declarative rule matrix (opt-in) with context providers:
 - `/pdg context`, `/pdg history [N]`, `/pdg test fire <type> <amount>`
 - `API_GetActiveContext`, `API_IsPvpAt`, `API_IsAllowed`
 
+### v1.3.0 (2026-05-16) - Onboarding
+
+- `/pdg import damagecontrol` - reads DamageControl.json, maps to PDG fields, backs up current config
+- `/pdg preset <name>` - four presets: pvepure, pvereflect, pvevehicleraids, pvphoursevents
+- `/pdg help [subcommand]` - interactive help (closest practical equivalent to tab completion in Rust chat)
+- `/pdg validate` - on-demand config validation
+- Automatic config validation at load: Inherits cycles, dangling provider targets, malformed rule actions, TOD array length, scaling bounds, unknown DamageType
+- Status block now reports config-issue count
+
 ## Planned
-
-### v1.3.0 - Onboarding (target: 2026-06-04 forced wipe)
-
-Reducing friction for new admins and Damage Control migrators. Low complexity, high adoption value.
-
-- **`/pdg import damagecontrol`** - reads `oxide/config/DamageControl.json`, generates an equivalent PVEDamageGuard config with comments noting which DC fields mapped to which PDG fields and which were dropped.
-- **`/pdg preset <name>`** - applies a known-good preset config. Initial presets: `pvepure` (block all PvP, full NPC scaling, full base protection), `pvereflect` (reflect PvP, NPC scaling), `pvevehicleraids` (allow heli/Bradley to damage bases, block other NPC->structure), `pvphoursevents` (PvP allowed only during events or PvP-flagged zones).
-- **Tab autocomplete** for `/pdg` subcommands, damage type names, context names, and preset names.
-- **Config validation at load** - warn on malformed rule strings, unreachable contexts (no provider routes to them), Inherits cycles, unknown DamageType values, etc. Validation surfaces in a single `Puts` block at startup so admins see issues immediately.
-- **Documentation polish** - migration guide updated with side-by-side DC -> PDG examples, common-pattern recipes (PVE with events, arena zones, RaidableBases), troubleshooting FAQ.
 
 ### v1.4.0 - Ecosystem integration (target: 2026-07-02 forced wipe)
 

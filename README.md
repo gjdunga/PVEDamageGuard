@@ -23,6 +23,10 @@ PVEDamageGuard classifies NPCs by **base type** (`BasePlayer.IsNpc`, `BaseNpc`, 
 - **`/pdg history [N]`** - inspect the last N classified hits with timestamps, classifications, contexts, and actions
 - **`/pdg context`** - show the active rule-matrix context at your current position
 - **`/pdg hour`** - current hour and TOD multipliers
+- **`/pdg import damagecontrol`** - one-shot migration from Damage Control 2.5.x config files
+- **`/pdg preset <name>`** - four known-good presets: pvepure, pvereflect, pvevehicleraids, pvphoursevents
+- **`/pdg validate`** + automatic validation at load - catches malformed rules, Inherits cycles, dangling provider targets, out-of-bounds multipliers
+- **`/pdg help [subcommand]`** - interactive help system
 - **Five-tier logging** (None / Reflects / Scaled / All / Trace) with optional structured file output to `oxide/logs/PVEDamageGuard/`
 - **Public API** including `API_Classify`, `API_ClassifySubtype`, `API_IsNpcAttacker`, `API_ReflectDamage`, `API_GetActiveContext`, `API_IsPvpAt`, `API_IsAllowed` for TruePVE / RaidableBases / PunishAttacker / NextGenPVE and other plugins
 - **TruePVE companion mode** - auto-detects TruePVE on load and yields allow/block decisions to it, only applying scaling/reflect on top
@@ -46,7 +50,7 @@ See [docs/installation.md](docs/installation.md) for full setup, [docs/configura
 
 ## Status
 
-**v1.2.0** - optional declarative rule matrix with ZoneManager and event-aware context switching, plus dry-run hit simulation and a history ring buffer for live diagnostics.
+**v1.3.0** - onboarding release. `/pdg import damagecontrol` for migrators, `/pdg preset <name>` for one-line config bootstrapping, automatic config validation with explicit error reports, and an interactive `/pdg help [subcommand]` system.
 
 See [CHANGELOG.md](CHANGELOG.md) for version history and [ROADMAP.md](ROADMAP.md) for planned features.
 
