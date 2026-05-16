@@ -70,5 +70,15 @@
   "WebhookUsage":   "Использование: /pdg webhook [test|on|off]. Без аргумента показывает статус.",
   "HelpEvents":     "/pdg events - показать все активные отслеживаемые события: события сущностей, купола RaidableBases и глобальные события (Convoy/ArmoredTrain).",
   "HelpWebhook":    "/pdg webhook - показать статус Discord вебхука. /pdg webhook test - отправить тестовое сообщение. /pdg webhook on|off - переключить без перезагрузки.",
+  "TimingStatus":   "Тайминг хука: Enabled={0}, образцов={1}, среднее={2}мкс, p95={3}мкс, max={4}мкс. Использование: /pdg timing [on|off|clear]",
+  "TimingEnabled":  "Тайминг хука включён. Используйте /pdg timing для просмотра статистики.",
+  "TimingDisabled": "Тайминг хука выключен.",
+  "TimingCleared":  "Буфер тайминга хука очищен.",
+  "TimingUsage":    "Использование: /pdg timing [on|off|clear]. Без аргумента показывает текущую статистику.",
+  "CacheStatus":    "Кэш классификации: {0} / {1} записей. Очищается автоматически при уничтожении сущности. /pdg cache clear для сброса.",
+  "CacheCleared":   "Кэш классификации очищен. Сброшено записей: {0}.",
+  "HelpTiming":     "/pdg timing - статистика тайминга хука (среднее/p95/max в микросекундах за последние 1000 попаданий). /pdg timing on|off - переключить запись.",
+  "HelpSelfTest":   "/pdg selftest - перезапустить самотест разрешения типов Rust.",
+  "HelpCache":      "/pdg cache - показать размер кэша. /pdg cache clear - очистить.",
   "StatusBlock":    "PVE Damage Guard v{0}\n  Отражение: {1} ({2:F2}x), БлокPvPбезОтражения: {3}, Союзники: {4}\n  NPC->Игрок по умолч: {5:F2}, NPC->Постройка по умолч: {6:F2}, Ловушки как PvP: {7}\n  Логирование: {8} (файл={9}), Уступать TruePVE: {10}, Discord вебхук: {22}\n  Возможности: TOD={11}, VictimSubtype={12}, BuildingGrade={13}, PerAttackerStruct={14}, RuleMatrix={15}\n  Текущий час: {16} ({17}), События: {18} сущ / {20} куп / {21} глоб, Проблемы конфига: {19}\n  Команды: /pdg reload | log | logfile | scale | hour | context | history | test | preset | import | validate | events | webhook | help"
 }

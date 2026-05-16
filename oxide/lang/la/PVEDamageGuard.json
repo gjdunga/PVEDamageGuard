@@ -70,5 +70,15 @@
   "WebhookUsage":   "Usus: /pdg webhook [test|on|off]. Sine argumento statum monstrat.",
   "HelpEvents":     "/pdg events - omnes eventus tractos demonstrare: eventus entitatum, cupolae RaidableBases, et eventus globales (Convoy/ArmoredTrain).",
   "HelpWebhook":    "/pdg webhook - statum webhook Discord demonstrare. /pdg webhook test - nuntium probationis mittere. /pdg webhook on|off - vertere sine renovatione.",
+  "TimingStatus":   "Tempus hook: Enabled={0}, exempla={1}, medium={2}us, p95={3}us, max={4}us. Usus: /pdg timing [on|off|clear]",
+  "TimingEnabled":  "Tempus hook activatum. Usa /pdg timing pro statistica.",
+  "TimingDisabled": "Tempus hook deactivatum.",
+  "TimingCleared":  "Custos temporis vacuus est.",
+  "TimingUsage":    "Usus: /pdg timing [on|off|clear]. Sine argumento statisticam praesentem monstrat.",
+  "CacheStatus":    "Custos classificationis: {0} / {1} ingressus. Automatice mundatur cum entitas destruitur. /pdg cache clear ad vacuandum.",
+  "CacheCleared":   "Custos classificationis vacuus est. {0} ingressus remoti.",
+  "HelpTiming":     "/pdg timing - statistica temporis hook (medium/p95/max in microsecundis super ultimos 1000 ictus).",
+  "HelpSelfTest":   "/pdg selftest - probationem typorum Rust iterum exsequi.",
+  "HelpCache":      "/pdg cache - magnitudinem custodis monstrare. /pdg cache clear - vacuare.",
   "StatusBlock":    "PVE Damage Guard v{0}\n  Reflexio: {1} ({2:F2}x), ImpedirePvPSineReflexio: {3}, Socii: {4}\n  NPC->Lusor praedef: {5:F2}, NPC->Aedificium praedef: {6:F2}, Insidiae ut PvP: {7}\n  Diarium: {8} (tabella={9}), Cedere TruePVE: {10}, Webhook Discord: {22}\n  Functiones: TOD={11}, VictimSubtype={12}, BuildingGrade={13}, PerAttackerStruct={14}, RuleMatrix={15}\n  Hora praesens: {16} ({17}), Eventus: {18} ent / {20} cup / {21} glob, Problemata config: {19}\n  Mandata: /pdg reload | log | logfile | scale | hour | context | history | test | preset | import | validate | events | webhook | help"
 }

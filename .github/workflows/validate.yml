@@ -1,0 +1,91 @@
+name: Validate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    name: JSON / YAML / C# syntax
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Validate all JSON files
+        run: |
+          set -e
+          fail=0
+          while IFS= read -r f; do
+            echo "Checking $f"
+            if ! python -m json.tool "$f" > /dev/null; then
+              echo "::error file=$f::Invalid JSON"
+              fail=1
+            fi
+          done < <(find . -name "*.json" -not -path "./.git/*")
+          exit $fail
+
+      - name: Validate .umod.yaml
+        run: |
+          pip install pyyaml
+          python -c "import yaml,sys; yaml.safe_load(open('.umod.yaml'))" || (echo "::error file=.umod.yaml::Invalid YAML"; exit 1)
+
+      - name: Roslyn syntax check on PVEDamageGuard.cs
+        run: |
+          mkdir -p .ci-syntax-check
+          cd .ci-syntax-check
+          dotnet new console -n SyntaxCheck --force -o .
+          dotnet add package Microsoft.CodeAnalysis.CSharp --version 4.10.0
+          cat > Program.cs <<'EOF'
+          using Microsoft.CodeAnalysis;
+          using Microsoft.CodeAnalysis.CSharp;
+          using System;
+          using System.IO;
+          using System.Linq;
+
+          var src = File.ReadAllText("../oxide/plugins/PVEDamageGuard.cs");
+          var tree = CSharpSyntaxTree.ParseText(src);
+          var errors = tree.GetDiagnostics()
+              .Where(d => d.Severity == DiagnosticSeverity.Error)
+              .ToList();
+          foreach (var e in errors)
+              Console.Error.WriteLine($"::error file=oxide/plugins/PVEDamageGuard.cs::{e}");
+          Console.WriteLine($"Roslyn syntax check: {errors.Count} error(s).");
+          Environment.Exit(errors.Count == 0 ? 0 : 1);
+          EOF
+          dotnet run
+
+      - name: Lang file key parity check
+        run: |
+          set -e
+          python <<'EOF'
+          import json, sys, pathlib
+          base = pathlib.Path("oxide/lang")
+          if not base.exists():
+              sys.exit(0)
+          dicts = {p.parent.name: json.loads(p.read_text(encoding="utf-8"))
+                   for p in base.glob("*/PVEDamageGuard.json")}
+          if not dicts:
+              sys.exit(0)
+          all_keys = set().union(*[set(d.keys()) for d in dicts.values()])
+          ok = True
+          for lang, d in sorted(dicts.items()):
+              missing = sorted(all_keys - set(d.keys()))
+              extra   = sorted(set(d.keys()) - all_keys)
+              if missing:
+                  print(f"::warning file=oxide/lang/{lang}/PVEDamageGuard.json::Missing keys: {missing[:5]}...")
+              if extra:
+                  print(f"::warning file=oxide/lang/{lang}/PVEDamageGuard.json::Extra keys not in any other lang: {extra[:5]}...")
+          print(f"Lang file parity: {len(dicts)} languages, {len(all_keys)} total keys.")
+          EOF

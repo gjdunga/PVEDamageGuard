@@ -70,5 +70,15 @@
   "WebhookUsage":   "Uso: /pdg webhook [test|on|off]. Sin argumento muestra estado.",
   "HelpEvents":     "/pdg events - listar todos los eventos rastreados: eventos de entidad, cúpulas RaidableBases y eventos globales (Convoy/ArmoredTrain).",
   "HelpWebhook":    "/pdg webhook - mostrar estado del webhook Discord. /pdg webhook test - enviar mensaje de prueba. /pdg webhook on|off - alternar sin recargar.",
+  "TimingStatus":   "Timing del hook: Enabled={0}, muestras={1}, media={2}us, p95={3}us, max={4}us. Uso: /pdg timing [on|off|clear]",
+  "TimingEnabled":  "Timing del hook habilitado. Usa /pdg timing para ver estadísticas.",
+  "TimingDisabled": "Timing del hook deshabilitado.",
+  "TimingCleared":  "Buffer de timing limpiado.",
+  "TimingUsage":    "Uso: /pdg timing [on|off|clear]. Sin argumento muestra estadísticas actuales.",
+  "CacheStatus":    "Caché de clasificación: {0} / {1} entradas. Limpiado automáticamente al destruir entidad. /pdg cache clear para vaciar.",
+  "CacheCleared":   "Caché de clasificación vaciado. {0} entradas eliminadas.",
+  "HelpTiming":     "/pdg timing - estadísticas de timing del hook (media/p95/max en microsegundos sobre los últimos 1000 hits).",
+  "HelpSelfTest":   "/pdg selftest - re-ejecutar auto-test de resolución de tipos Rust.",
+  "HelpCache":      "/pdg cache - mostrar tamaño del caché. /pdg cache clear - vaciar.",
   "StatusBlock":    "PVE Damage Guard v{0}\n  Reflejo: {1} ({2:F2}x), BloqPvPSinReflejo: {3}, Compañeros: {4}\n  NPC->Jugador pred: {5:F2}, NPC->Estructura pred: {6:F2}, Trampas como PvP: {7}\n  Registro: {8} (archivo={9}), Ceder a TruePVE: {10}, Webhook Discord: {22}\n  Funciones: TOD={11}, VictimSubtype={12}, BuildingGrade={13}, PerAttackerStruct={14}, RuleMatrix={15}\n  Hora actual: {16} ({17}), Eventos: {18} ent / {20} cup / {21} glob, Problemas config: {19}\n  Comandos: /pdg reload | log | logfile | scale | hour | context | history | test | preset | import | validate | events | webhook | help"
 }

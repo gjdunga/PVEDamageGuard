@@ -53,7 +53,7 @@ See [docs/installation.md](docs/installation.md) for full setup, [docs/configura
 
 ## Status
 
-**v1.4.0** - ecosystem integration. RaidableBases dome detection, Convoy + Armored Train server-wide flags, Discord webhook output with rate limiting, plus `/pdg events` and `/pdg webhook` admin commands.
+**v1.5.0** - performance, reliability, and Carbon support. Per-entity classification cache, startup self-test, hook timing telemetry, GitHub Actions CI, Carbon framework declared compatible, lang stubs for French/German/Chinese-Simplified/Portuguese-BR.
 
 See [CHANGELOG.md](CHANGELOG.md) for version history and [ROADMAP.md](ROADMAP.md) for planned features.
 

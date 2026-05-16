@@ -70,5 +70,15 @@
   "WebhookUsage":   "Usage: /pdg webhook [test|on|off]. No arg shows status.",
   "HelpEvents":     "/pdg events - list all currently-tracked events: entity events, RaidableBases domes, and global events (Convoy/ArmoredTrain).",
   "HelpWebhook":    "/pdg webhook - show Discord webhook status. /pdg webhook test - send a test message. /pdg webhook on|off - toggle without reloading.",
+  "TimingStatus":   "Hook timing: Enabled={0}, samples={1}, mean={2}us, p95={3}us, max={4}us. Usage: /pdg timing [on|off|clear]",
+  "TimingEnabled":  "Hook timing enabled. Use /pdg timing to view stats.",
+  "TimingDisabled": "Hook timing disabled.",
+  "TimingCleared":  "Hook timing buffer cleared.",
+  "TimingUsage":    "Usage: /pdg timing [on|off|clear]. No arg shows current stats.",
+  "CacheStatus":    "Classification cache: {0} / {1} entries. Cleared automatically on entity destroy. Use /pdg cache clear to flush.",
+  "CacheCleared":   "Classification cache cleared. {0} entries flushed.",
+  "HelpTiming":     "/pdg timing - show hook-timing stats (mean/p95/max in microseconds over the last 1000 hits). /pdg timing on|off - toggle recording. /pdg timing clear - reset.",
+  "HelpSelfTest":   "/pdg selftest - re-run the type-resolution self-test.",
+  "HelpCache":      "/pdg cache - show classification cache size. /pdg cache clear - flush.",
   "StatusBlock":    "PVE Damage Guard v{0}\n  Reflect: {1} ({2:F2}x), BlockPvpIfNotReflecting: {3}, Teammates: {4}\n  NPC->Player default: {5:F2}, NPC->Structure default: {6:F2}, Traps as PvP: {7}\n  Logging: {8} (file={9}), Yield to TruePVE: {10}, Discord webhook: {22}\n  Features: TOD={11}, VictimSubtype={12}, BuildingGrade={13}, PerAttackerStruct={14}, RuleMatrix={15}\n  Current hour: {16} ({17}), Events: {18} entity / {20} dome / {21} global, Config issues: {19}\n  Commands: /pdg reload | log | logfile | scale | hour | context | history | test | preset | import | validate | events | webhook | help"
 }

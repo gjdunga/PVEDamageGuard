@@ -1,7 +1,7 @@
 {
   "name": "PVEDamageGuard",
   "title": "PVE Damage Guard",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "Future-proof Rust NPC classifier, per-attacker damage scaling, and reflect-as-a-service for PVE servers. TruePVE companion.",
   "author": "Gabriel Dungan (DunganSoft Technologies)",
   "license": "GPL-3.0",
@@ -9,6 +9,7 @@
   "tags": ["pve", "damage", "npc", "classifier", "reflect", "truepve-companion"],
   "game": "rust",
   "framework": "oxide",
+  "compatible_frameworks": ["oxide", "carbon"],
   "minimum_oxide_version": "2.0.0",
   "main": "oxide/plugins/PVEDamageGuard.cs",
   "languages": ["en", "ru", "es", "la"]

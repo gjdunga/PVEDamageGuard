@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using Newtonsoft.Json;
@@ -13,8 +14,8 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("PVE Damage Guard", "Gabriel Dungan (DunganSoft Technologies)", "1.4.0")]
-    [Description("Future-proof NPC classifier, declarative rule matrix, per-attacker/per-victim damage scaling, time-of-day modifiers, ZoneManager / RaidableBases / Convoy / Armored Train context switching, reflect-as-a-service, Discord webhook output, Damage Control config import, preset configurations, config validation, and admin diagnostics for PVE Rust servers.")]
+    [Info("PVE Damage Guard", "Gabriel Dungan (DunganSoft Technologies)", "1.5.0")]
+    [Description("Future-proof NPC classifier, declarative rule matrix, per-attacker/per-victim damage scaling, time-of-day modifiers, ZoneManager / RaidableBases / Convoy / Armored Train context switching, reflect-as-a-service, Discord webhook output, Damage Control config import, preset configurations, config validation, classification cache, hook timing telemetry, Carbon framework support, and admin diagnostics for PVE Rust servers.")]
     public class PVEDamageGuard : CovalencePlugin
     {
         [PluginReference] private Plugin TruePVE;
@@ -62,6 +63,22 @@ namespace Oxide.Plugins
         // Discord webhook rate limit (v1.4): sliding 1-minute window of send timestamps.
         private readonly Queue<DateTime> _webhookSendTimes = new Queue<DateTime>();
 
+        // Per-entity classification cache (v1.5): avoid repeated type checks on the same entity.
+        // Keyed by net.ID.Value; entries cleared on OnEntityKill.
+        private readonly Dictionary<ulong, CachedClassification> _classifyCache = new Dictionary<ulong, CachedClassification>();
+        private const int CacheMaxEntries = 10000;
+
+        // Hook timing telemetry (v1.5): rolling buffer of last N OnEntityTakeDamage timings in microseconds.
+        private const int TimingBufferSize = 1000;
+        private readonly long[] _hookTimingsUs = new long[TimingBufferSize];
+        private int _hookTimingIdx;
+        private long _hookTimingCount;
+        private bool _hookTimingEnabled;
+
+        // Self-test results (v1.5)
+        private bool _selfTestPassed = true;
+        private string _selfTestSummary = "Self-test not run yet.";
+
         // History ring buffer
         private readonly Queue<HistoryEntry> _history = new Queue<HistoryEntry>();
         private const int HistoryCapacity = 100;
@@ -107,6 +124,14 @@ namespace Oxide.Plugins
             public float Radius;
             public int Mode;          // RaidableBases mode/difficulty 0-5
             public DateTime SeenAt;
+        }
+
+        // v1.5 - cached classification result for an entity instance.
+        private struct CachedClassification
+        {
+            public NpcCategory Category;
+            public string Subtype;
+            public bool HasSubtype; // distinguishes "not yet computed" from "computed to null"
         }
 
         private class HistoryEntry
@@ -540,6 +565,7 @@ namespace Oxide.Plugins
         {
             RebuildCaches();
             ValidateConfig();
+            RunSelfTest();
             DetectCompanions();
             // Seed event tracker with currently-spawned event entities
             if (_ruleMatrixEnabled && _config.RuleMatrix.ContextProviders.EventTracker.Enabled)
@@ -599,7 +625,9 @@ namespace Oxide.Plugins
         private void OnEntityKill(BaseNetworkable entity)
         {
             if (entity?.net == null) return;
-            _activeEvents.Remove(entity.net.ID.Value);
+            var id = entity.net.ID.Value;
+            _activeEvents.Remove(id);
+            _classifyCache.Remove(id); // v1.5 cache invalidation
         }
 
         private void TryTrackEvent(BaseEntity entity)
@@ -789,6 +817,15 @@ namespace Oxide.Plugins
         #region Hook
 
         private object OnEntityTakeDamage(BaseCombatEntity entity, HitInfo info)
+        {
+            // v1.5 - wrap with optional Stopwatch timing
+            if (!_hookTimingEnabled) return OnEntityTakeDamageInner(entity, info);
+            var sw = Stopwatch.StartNew();
+            try { return OnEntityTakeDamageInner(entity, info); }
+            finally { sw.Stop(); RecordHookTiming(sw.ElapsedTicks); }
+        }
+
+        private object OnEntityTakeDamageInner(BaseCombatEntity entity, HitInfo info)
         {
             if (entity == null || info == null || info.damageTypes == null) return null;
 
@@ -1199,23 +1236,79 @@ namespace Oxide.Plugins
         public NpcCategory ClassifyEntity(BaseEntity entity)
         {
             if (entity == null) return NpcCategory.Environment;
+
+            // v1.5 - cached lookup
+            ulong cacheKey = 0UL;
+            bool useCache = false;
+            if (entity.net != null && entity.net.ID.IsValid)
+            {
+                cacheKey = entity.net.ID.Value;
+                useCache = true;
+                if (_classifyCache.TryGetValue(cacheKey, out var cached))
+                    return cached.Category;
+            }
+
+            NpcCategory result;
             if (entity is BasePlayer bp)
-                return bp.IsNpc ? NpcCategory.HumanNpc : NpcCategory.RealPlayer;
-            if (entity is NPCPlayer)      return NpcCategory.HumanNpc;
-            if (entity is BaseNpc)        return NpcCategory.AnimalNpc;
-            if (entity is BaseHelicopter) return NpcCategory.VehicleNpc;
-            if (entity is BradleyAPC)     return NpcCategory.VehicleNpc;
-            if (entity is BuildingBlock)  return NpcCategory.Building;
-            if (entity is Door)           return NpcCategory.Building;
-            if (entity is DecayEntity && entity.OwnerID != 0UL) return NpcCategory.Deployable;
-            if (entity is BaseCombatEntity bce && bce.OwnerID != 0UL && bce.OwnerID.IsSteamId())
-                return NpcCategory.OwnedTrap;
-            return NpcCategory.Other;
+                result = bp.IsNpc ? NpcCategory.HumanNpc : NpcCategory.RealPlayer;
+            else if (entity is NPCPlayer)      result = NpcCategory.HumanNpc;
+            else if (entity is BaseNpc)        result = NpcCategory.AnimalNpc;
+            else if (entity is BaseHelicopter) result = NpcCategory.VehicleNpc;
+            else if (entity is BradleyAPC)     result = NpcCategory.VehicleNpc;
+            else if (entity is BuildingBlock)  result = NpcCategory.Building;
+            else if (entity is Door)           result = NpcCategory.Building;
+            else if (entity is DecayEntity && entity.OwnerID != 0UL) result = NpcCategory.Deployable;
+            else if (entity is BaseCombatEntity bce && bce.OwnerID != 0UL && bce.OwnerID.IsSteamId())
+                result = NpcCategory.OwnedTrap;
+            else result = NpcCategory.Other;
+
+            if (useCache) CachePut(cacheKey, result, null, hasSubtype: false);
+            return result;
         }
+
+        // v1.5 - cache helpers
+        private void CachePut(ulong key, NpcCategory cat, string subtype, bool hasSubtype)
+        {
+            if (_classifyCache.Count >= CacheMaxEntries) _classifyCache.Clear();
+            if (_classifyCache.TryGetValue(key, out var existing))
+            {
+                // Preserve subtype if not being updated
+                if (!hasSubtype) { subtype = existing.Subtype; hasSubtype = existing.HasSubtype; }
+            }
+            _classifyCache[key] = new CachedClassification { Category = cat, Subtype = subtype, HasSubtype = hasSubtype };
+        }
+
+        private void CacheInvalidate(ulong key) => _classifyCache.Remove(key);
 
         public string ClassifySubtype(BaseEntity entity)
         {
             if (entity == null) return null;
+
+            // v1.5 - cached lookup (only valid if we've already computed the subtype, marked by HasSubtype)
+            ulong cacheKey = 0UL;
+            bool useCache = false;
+            if (entity.net != null && entity.net.ID.IsValid)
+            {
+                cacheKey = entity.net.ID.Value;
+                useCache = true;
+                if (_classifyCache.TryGetValue(cacheKey, out var cached) && cached.HasSubtype)
+                    return cached.Subtype;
+            }
+
+            string result = ClassifySubtypeImpl(entity);
+            if (useCache)
+            {
+                // Preserve existing category if present, else compute it
+                NpcCategory cat = NpcCategory.Other;
+                if (_classifyCache.TryGetValue(cacheKey, out var existing)) cat = existing.Category;
+                else cat = ClassifyEntity(entity); // will populate category cache as side effect
+                CachePut(cacheKey, cat, result, hasSubtype: true);
+            }
+            return result;
+        }
+
+        private string ClassifySubtypeImpl(BaseEntity entity)
+        {
             string prefab = entity.ShortPrefabName ?? "";
 
             if (entity is BaseHelicopter) return "PatrolHelicopter";
@@ -1345,6 +1438,83 @@ namespace Oxide.Plugins
                 if (map.TryGetValue(dt.ToString(), out var configured)) mult = configured;
                 info.damageTypes.Scale(dt, mult * crossMult);
             }
+        }
+
+        #endregion
+
+        #region Performance and diagnostics (v1.5)
+
+        // Self-test verifies that the Rust types our classifier depends on resolve correctly at runtime.
+        // If a Facepunch update removes or renames a type, the plugin would throw on the first hit
+        // involving that branch; the self-test surfaces it at load time as a clear error instead.
+        private void RunSelfTest()
+        {
+            var checks = new List<(string name, bool ok, string detail)>();
+
+            // Type existence checks
+            checks.Add(("typeof(BasePlayer)",     typeof(BasePlayer)     != null, "real players + humanoid NPCs (IsNpc)"));
+            checks.Add(("typeof(BaseNpc)",        typeof(BaseNpc)        != null, "animals, zombies, scarecrows"));
+            checks.Add(("typeof(NPCPlayer)",      typeof(NPCPlayer)      != null, "legacy NPC humanoids"));
+            checks.Add(("typeof(BaseHelicopter)", typeof(BaseHelicopter) != null, "patrol helicopter"));
+            checks.Add(("typeof(BradleyAPC)",     typeof(BradleyAPC)     != null, "Bradley APC"));
+            checks.Add(("typeof(BuildingBlock)",  typeof(BuildingBlock)  != null, "building grade victims"));
+            checks.Add(("typeof(Door)",           typeof(Door)           != null, "doors"));
+            checks.Add(("typeof(DecayEntity)",    typeof(DecayEntity)    != null, "deployables"));
+            checks.Add(("typeof(LootContainer)",  typeof(LootContainer)  != null, "barrels"));
+
+            // DamageType enum sanity
+            checks.Add(("DamageType.LAST present",
+                Enum.IsDefined(typeof(DamageType), DamageType.LAST), "enum sentinel intact"));
+            checks.Add(("_allDamageTypes populated",
+                _allDamageTypes != null && _allDamageTypes.Length > 1, $"cached {_allDamageTypes?.Length ?? 0} types"));
+
+            // TOD source - non-fatal if missing (TOD_Sky may not be ready yet at load time)
+            bool tod = false;
+            try { tod = TOD_Sky.Instance != null; } catch { tod = false; }
+            checks.Add(("TOD_Sky.Instance",       tod, tod ? "ready" : "not ready (will be checked again on demand)"));
+
+            var failures = checks.Where(c => !c.ok).ToList();
+            _selfTestPassed = failures.Count == 0
+                              || (failures.Count == 1 && failures[0].name == "TOD_Sky.Instance"); // only TOD failed = soft fail
+
+            if (_selfTestPassed)
+            {
+                _selfTestSummary = $"Self-test: {checks.Count - failures.Count}/{checks.Count} checks passed.";
+                Puts(_selfTestSummary);
+            }
+            else
+            {
+                _selfTestSummary = $"Self-test FAILED: {failures.Count}/{checks.Count} checks did not pass.";
+                PrintError(_selfTestSummary);
+                foreach (var f in failures)
+                    PrintError($"  - {f.name} (used for: {f.detail})");
+            }
+        }
+
+        // Hook timing - records elapsed ticks of OnEntityTakeDamage into a rolling buffer when enabled.
+        private void RecordHookTiming(long elapsedTicks)
+        {
+            long us = elapsedTicks * 1000000L / Stopwatch.Frequency;
+            _hookTimingsUs[_hookTimingIdx] = us;
+            _hookTimingIdx = (_hookTimingIdx + 1) % TimingBufferSize;
+            _hookTimingCount++;
+        }
+
+        private (long mean, long p95, long max, long sampleCount) ComputeTimingStats()
+        {
+            long count = Math.Min(_hookTimingCount, TimingBufferSize);
+            if (count == 0) return (0, 0, 0, 0);
+
+            var snapshot = new long[count];
+            Array.Copy(_hookTimingsUs, snapshot, count);
+            Array.Sort(snapshot);
+
+            long sum = 0;
+            for (int i = 0; i < count; i++) sum += snapshot[i];
+            long mean = sum / count;
+            long p95 = snapshot[(int)Math.Min(count - 1, (long)(count * 0.95))];
+            long max = snapshot[count - 1];
+            return (mean, p95, max, count);
         }
 
         #endregion
@@ -1785,6 +1955,9 @@ namespace Oxide.Plugins
                 case "preset":   return string.Format(Lang("HelpPreset"), string.Join(", ", _presetNames));
                 case "events":   return Lang("HelpEvents");
                 case "webhook":  return Lang("HelpWebhook");
+                case "timing":   return Lang("HelpTiming");
+                case "selftest": return Lang("HelpSelfTest");
+                case "cache":    return Lang("HelpCache");
                 case "help":     return Lang("HelpHelp");
                 default:         return string.Format(Lang("HelpUnknown"), subcommand);
             }
@@ -1969,6 +2142,9 @@ namespace Oxide.Plugins
                 case "validate": CmdValidate(player); break;
                 case "events":  CmdEvents(player); break;
                 case "webhook": CmdWebhook(player, args); break;
+                case "timing":  CmdTiming(player, args); break;
+                case "selftest": CmdSelfTest(player); break;
+                case "cache":   CmdCache(player, args); break;
                 default:
                     player.Reply(Lang("UsageRoot", player.Id));
                     break;
@@ -2090,6 +2266,56 @@ namespace Oxide.Plugins
                 lines.Add(Lang("EventsNone", player.Id));
 
             player.Reply(string.Join("\n", lines));
+        }
+
+        private void CmdTiming(IPlayer player, string[] args)
+        {
+            if (args.Length < 2)
+            {
+                var s = ComputeTimingStats();
+                player.Reply(string.Format(Lang("TimingStatus", player.Id),
+                    _hookTimingEnabled, s.sampleCount, s.mean, s.p95, s.max));
+                return;
+            }
+            switch (args[1].ToLowerInvariant())
+            {
+                case "on":
+                    _hookTimingEnabled = true;
+                    player.Reply(Lang("TimingEnabled", player.Id));
+                    break;
+                case "off":
+                    _hookTimingEnabled = false;
+                    player.Reply(Lang("TimingDisabled", player.Id));
+                    break;
+                case "clear":
+                    Array.Clear(_hookTimingsUs, 0, _hookTimingsUs.Length);
+                    _hookTimingIdx = 0;
+                    _hookTimingCount = 0;
+                    player.Reply(Lang("TimingCleared", player.Id));
+                    break;
+                default:
+                    player.Reply(Lang("TimingUsage", player.Id));
+                    break;
+            }
+        }
+
+        private void CmdSelfTest(IPlayer player)
+        {
+            RunSelfTest();
+            player.Reply(_selfTestSummary + (_selfTestPassed ? " (passed)" : " (FAILED - see console)"));
+        }
+
+        private void CmdCache(IPlayer player, string[] args)
+        {
+            if (args.Length >= 2 && args[1].Equals("clear", StringComparison.OrdinalIgnoreCase))
+            {
+                int before = _classifyCache.Count;
+                _classifyCache.Clear();
+                player.Reply(string.Format(Lang("CacheCleared", player.Id), before));
+                return;
+            }
+            player.Reply(string.Format(Lang("CacheStatus", player.Id),
+                _classifyCache.Count, CacheMaxEntries));
         }
 
         private void CmdWebhook(IPlayer player, string[] args)
@@ -2384,7 +2610,7 @@ namespace Oxide.Plugins
                 ["NoPermission"]    = "You do not have permission to use this command.",
                 ["ConfigReloaded"]  = "PVEDamageGuard config reloaded.",
                 ["ConfigReloadedWithIssues"] = "PVEDamageGuard config reloaded with {0} validation issue(s). Run /pdg validate for details.",
-                ["UsageRoot"]       = "Usage: /pdg [reload | log <level> | logfile <on|off> | scale <type> <mult> | hour | context | history [N] | test [fire <type> <amount>] | preset <name> | import damagecontrol | validate | events | webhook [test|on|off] | help [subcommand]]",
+                ["UsageRoot"]       = "Usage: /pdg [reload | log | logfile | scale | hour | context | history | test | preset | import | validate | events | webhook | timing | selftest | cache | help]",
                 ["PresetUsage"]     = "Usage: /pdg preset <name>. Available presets: {0}.",
                 ["PresetUnknown"]   = "Unknown preset '{0}'. Available: {1}.",
                 ["PresetApplied"]   = "Applied preset '{0}'. Config saved and reloaded. Review with /pdg status.",
@@ -2452,6 +2678,16 @@ namespace Oxide.Plugins
                 ["WebhookUsage"]    = "Usage: /pdg webhook [test|on|off]. No arg shows status.",
                 ["HelpEvents"]      = "/pdg events - list all currently-tracked events: entity events, RaidableBases domes, and global events (Convoy/ArmoredTrain).",
                 ["HelpWebhook"]     = "/pdg webhook - show Discord webhook status. /pdg webhook test - send a test message. /pdg webhook on|off - toggle without reloading.",
+                ["TimingStatus"]    = "Hook timing: Enabled={0}, samples={1}, mean={2}us, p95={3}us, max={4}us. Usage: /pdg timing [on|off|clear]",
+                ["TimingEnabled"]   = "Hook timing enabled. Use /pdg timing to view stats.",
+                ["TimingDisabled"]  = "Hook timing disabled.",
+                ["TimingCleared"]   = "Hook timing buffer cleared.",
+                ["TimingUsage"]     = "Usage: /pdg timing [on|off|clear]. No arg shows current stats.",
+                ["CacheStatus"]     = "Classification cache: {0} / {1} entries. Cleared automatically on entity destroy. Use /pdg cache clear to flush.",
+                ["CacheCleared"]    = "Classification cache cleared. {0} entries flushed.",
+                ["HelpTiming"]      = "/pdg timing - show hook-timing stats (mean/p95/max in microseconds over the last 1000 hits). /pdg timing on|off - toggle recording. /pdg timing clear - reset the buffer.",
+                ["HelpSelfTest"]    = "/pdg selftest - re-run the type-resolution self-test. Reports whether all Rust types PVEDamageGuard depends on resolve correctly under the current server build.",
+                ["HelpCache"]       = "/pdg cache - show classification cache size. /pdg cache clear - flush the cache (only useful after manually changing entity classification logic).",
                 ["StatusBlock"]     =
                     "PVE Damage Guard v{0}\n" +
                     "  Reflect: {1} ({2:F2}x), BlockPvpIfNotReflecting: {3}, Teammates: {4}\n" +

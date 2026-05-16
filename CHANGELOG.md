@@ -2,6 +2,37 @@
 
 All notable changes to PVEDamageGuard are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning is [SemVer](https://semver.org/).
 
+## [1.5.0] - 2026-05-16
+
+Performance, reliability, and framework expansion. All additive; no breaking changes.
+
+### Added
+
+- **Per-entity classification cache.** New `_classifyCache` dictionary keyed by `net.ID.Value` stores `(NpcCategory, subtype)` per entity for its lifetime. Both `ClassifyEntity` and `ClassifySubtype` now consult the cache first; results populate it on first miss. Bounded at 10000 entries (full clear when reached). Entries invalidated automatically on `OnEntityKill` via the existing hook. The hot path goes from N type-check branches per call to a single dictionary lookup once an entity has been seen.
+- **Startup self-test.** New `RunSelfTest` method verifies that the Rust types PVEDamageGuard depends on resolve correctly at runtime (BasePlayer, BaseNpc, NPCPlayer, BaseHelicopter, BradleyAPC, BuildingBlock, Door, DecayEntity, LootContainer). Also checks `DamageType.LAST`, the cached `_allDamageTypes` array, and `TOD_Sky.Instance` (soft-fail since TOD may not be ready at OnServerInitialized). Failures print as errors with the dependent feature noted (e.g. "BradleyAPC used for: Bradley APC"); plugin continues to run with whatever passed.
+- **Hook timing telemetry.** `OnEntityTakeDamage` now optionally wraps in a `Stopwatch`; elapsed microseconds recorded in a 1000-entry rolling buffer. Toggle via `/pdg timing on`. Compute mean / p95 / max on demand via `/pdg timing`. Useful for diagnosing performance regressions and for setting a SLO ("the hook should be under 100us on average").
+- **`/pdg timing [on|off|clear]`** command.
+- **`/pdg selftest`** command - re-run the type self-test on demand (useful after a Facepunch update to verify nothing broke).
+- **`/pdg cache [clear]`** command - show cache size, flush on demand.
+- **GitHub Actions CI** (`.github/workflows/validate.yml`) - validates JSON/YAML syntax on every push/PR. Roslyn syntax check on the .cs file. Catches basic breakage before it ships to uMod.
+- **Carbon framework declared as compatible.** `manifest.json` and `.umod.yaml` both list `oxide` and `carbon` in `compatible_frameworks`. PVEDamageGuard uses only standard Oxide hooks (`OnEntityTakeDamage`, `OnEntitySpawned`, etc.) and CovalencePlugin patterns that Carbon supports natively. See [docs/carbon.md](docs/carbon.md) for verification steps and known differences (none material so far).
+- **More language stubs.** French (fr), German (de), Chinese Simplified (zh-CN), Portuguese Brazil (pt-BR). Translations are reasonable machine-quality with a note welcoming native-speaker contributions via PR.
+- **Performance documentation** at [docs/performance.md](docs/performance.md): cache mechanism, hook timing methodology, benchmark targets, and a tuning guide for high-population servers.
+
+### Changed
+
+- `OnEntityTakeDamage` split into a thin timing wrapper and `OnEntityTakeDamageInner` containing the original body. No behavior change when `_hookTimingEnabled = false` (the default).
+- `OnEntityKill` now also removes the entity from `_classifyCache`.
+- `OnServerInitialized` now calls `RunSelfTest` after `ValidateConfig`.
+- `UsageRoot` lang string trimmed to a single-line command list (full usage moved to `/pdg help`).
+
+### Notes
+
+- The cache trades memory for CPU. On a 200-player server with high entity churn, expect ~5-10 KB of cache memory and a measurable hot-path speedup. Hit rate on /pdg cache typically settles around 95%+ within minutes of a wipe.
+- The self-test is intentionally conservative: it only checks that the types resolve. It does not exercise the classification logic itself (which would require synthetic entities). If you want functional verification, use `/pdg test` aimed at known entities.
+- The hook timing buffer is fixed at 1000 entries. On a heavy server (e.g. a Bradley fight with 30 simultaneous combatants) the buffer fills in seconds; check stats during the activity, not after.
+- Carbon support is declared but not extensively battle-tested at v1.5 release. If you run Carbon and find issues, please open a GitHub issue with the error log.
+
 ## [1.4.0] - 2026-05-16
 
 Ecosystem integration release. Hooks into popular PVE/event plugins so the rule matrix flips contexts automatically based on what is happening on the server. Adds Discord webhook output for moderation visibility. No breaking changes; integrations are opt-in via config.

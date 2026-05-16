@@ -48,6 +48,17 @@ Declarative rule matrix (opt-in) with context providers:
 - `/pdg webhook [test|on|off]` - status, test message, runtime toggle
 - Integration recipes in docs/integrations/ for RaidableBases, Convoy, ArmoredTrain, Discord webhooks
 
+### v1.5.0 (2026-05-16) - Performance, reliability, Carbon
+
+- Per-entity classification cache (10000 entries, invalidated on OnEntityKill)
+- Startup self-test verifies Rust type resolution; surfaces breakage as load-time errors
+- Hook timing telemetry with rolling 1000-entry Stopwatch buffer
+- `/pdg timing [on|off|clear]`, `/pdg selftest`, `/pdg cache [clear]` commands
+- Carbon framework declared compatible (manifest + .umod.yaml updated; uses only Oxide-stable hooks)
+- GitHub Actions CI for JSON/YAML/C# syntax checks on PRs
+- Language stubs added: French, German, Chinese Simplified, Portuguese-Brazil
+- New docs: docs/performance.md, docs/carbon.md
+
 ## Planned
 
 ### v1.4.0 - Ecosystem integration (target: 2026-07-02 forced wipe)
