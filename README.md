@@ -37,12 +37,17 @@ PVEDamageGuard classifies NPCs by **base type** (`BasePlayer.IsNpc`, `BaseNpc`, 
 
 ## Quick install
 
-1. Copy `oxide/plugins/PVEDamageGuard.cs` into your server's `oxide/plugins/` directory.
-2. The plugin auto-loads. Default config is written to `oxide/config/PVEDamageGuard.json`.
-3. Tweak the config, then `oxide.reload PVEDamageGuard` or `/pdg reload` in chat.
-4. Grant admins the chat command perm: `oxide.grant user <steamid> pvedamageguard.admin`.
+```bash
+# 1. Drop PVEDamageGuard.cs into oxide/plugins/
+# 2. In game console:
+oxide.grant user <your-steamid> pvedamageguard.admin
+# 3. In chat:
+/pdg preset pvereflect    # pick the closest preset, then tune
+```
 
-See [docs/installation.md](docs/installation.md) for full setup, [docs/configuration.md](docs/configuration.md) for every config field, [docs/commands.md](docs/commands.md) for chat commands, and [docs/api.md](docs/api.md) for the plugin API.
+**Full setup: [INSTALL.md](INSTALL.md)** — comprehensive guide covering prerequisites, detailed install, first-time configuration, preset selection, Damage Control migration, integrations (TruePVE / ZoneManager / RaidableBases / Convoy / Armored Train / Discord), common admin tasks, updating, troubleshooting, and uninstalling.
+
+Other reference docs: [configuration.md](docs/configuration.md), [commands.md](docs/commands.md), [api.md](docs/api.md), [rule-matrix.md](docs/rule-matrix.md), [performance.md](docs/performance.md), [carbon.md](docs/carbon.md), [cui.md](docs/cui.md).
 
 ## Compatibility
 
