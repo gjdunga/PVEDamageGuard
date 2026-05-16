@@ -2,6 +2,34 @@
 
 All notable changes to PVEDamageGuard are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning is [SemVer](https://semver.org/).
 
+## [1.7.3] - 2026-05-16
+
+Robustness release: replaces long descriptive JSON property names with short safe ones. Auto-migrates existing v1.0-v1.7.2 configs.
+
+### Background
+
+From v1.0 through v1.7.2, every config field used a `JsonProperty` attribute with a long descriptive name like `"PvP - Reflect multiplier (1.0 = full reflect, 0.5 = half)"`. These long names looked like inline documentation in the JSON file - convenient for humans but fragile:
+
+- Commas, parentheses, equals signs inside the name can confuse non-strict JSON parsers
+- Smart-quote conversion in some text editors corrupts the surrounding quotes
+- BOM / encoding swaps during save can mangle the line
+- Hand-edits that accidentally drop a closing quote produce errors that surface 40+ characters later
+
+At least one user hit a parse error of the form `'Invalid JavaScript property identifier character: ,.'` originating from a corrupted line. PVEDamageGuard correctly recovered by regenerating defaults, but their tuning was lost (preserved as `.jsonError` for manual recovery).
+
+### Fixed
+
+- **All 42 long-name JsonProperty attributes removed.** Newtonsoft now uses the C# property names (`ReflectMultiplier`, `NpcToStructureScaling`, `BuildingGradeMultipliers`, etc.) directly. Short, alphanumeric, encoding-safe. No more commas / parens / equals inside property names.
+- **Auto-migration for existing configs.** On `LoadConfig`, if Newtonsoft fails to parse, `TryMigrateLegacyConfig` rewrites the file in-place using a 44-entry rename map (every legacy long name -> the new short name), then retries the load. Console reports `Migrated legacy long-name config field keys to v1.7.3 short names.` on success. Subsequent loads use the new names directly.
+- **Configuration documentation moved out of attribute text.** What were long descriptive JSON keys are now short field names; full field descriptions live in `docs/configuration.md`.
+
+### Notes
+
+- No functional change. Same fields, same behavior. Only the JSON keys differ.
+- Existing servers with intact v1.7.2 configs upgrade transparently on first v1.7.3 load. The migration runs before the file is fully re-saved; no manual config edit needed.
+- If you had a corrupted config and got the regenerated defaults: re-apply your preset (`/pdg preset pvereflect` or similar) plus any `/pdg scale` tuning.
+- The `.jsonError` file from a prior failure can usually be salvaged by running v1.7.3 and renaming the failed file back to `PVEDamageGuard.json` - the migration will rewrite the long names and Newtonsoft will then parse the cleaner version successfully.
+
 ## [1.7.2] - 2026-05-16
 
 Hotfix for v1.7.1 compile failure on current Rust builds.

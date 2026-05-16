@@ -58,7 +58,7 @@ Other reference docs: [configuration.md](docs/configuration.md), [commands.md](d
 
 ## Status
 
-**v1.7.1** - bug fix: PvP reflect now also fires when a player damages another player's structure (Building / Door / Deployable). Authorized damage (own base, teammates, TC-authorized) is unaffected.
+**v1.7.3** - robustness: replaced 42 long descriptive JSON property names with short safe ones (encoding-safe, no embedded commas/parens). Auto-migrates existing configs. v1.7.1 / v1.7.2 fixes still included (foreign-structure reflect, `authorizedPlayers` API drift).
 
 See [CHANGELOG.md](CHANGELOG.md) for version history and [ROADMAP.md](ROADMAP.md) for planned features.
 

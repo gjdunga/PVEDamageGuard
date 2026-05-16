@@ -15,7 +15,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("PVE Damage Guard", "Gabriel Dungan (DunganSoft Technologies)", "1.7.2")]
+    [Info("PVE Damage Guard", "Gabriel Dungan (DunganSoft Technologies)", "1.7.3")]
     [Description("Future-proof NPC classifier, declarative rule matrix, per-attacker/per-victim damage scaling, time-of-day modifiers, ZoneManager / RaidableBases / Convoy / Armored Train context switching, reflect-as-a-service, Discord webhook output, Damage Control config import, preset configurations, config validation, classification cache, hook timing telemetry, Carbon framework support, in-game CUI admin panel with live-streaming Logging and paginated History tabs, per-player damage statistics, and per-event context overrides for PVE Rust servers.")]
     public class PVEDamageGuard : CovalencePlugin
     {
@@ -279,22 +279,16 @@ namespace Oxide.Plugins
 
         private class Configuration
         {
-            [JsonProperty("PvP - Reflect damage to shooter (master switch)")]
             public bool ReflectPvpEnabled = true;
 
-            [JsonProperty("PvP - Reflect multiplier (1.0 = full reflect, 0.5 = half)")]
             public float ReflectMultiplier = 1.0f;
 
-            [JsonProperty("PvP - If reflect is disabled, block PvP damage outright instead of letting it through")]
             public bool BlockPvpIfNotReflecting = true;
 
-            [JsonProperty("PvP - Allow teammates (Rust team system) to damage each other")]
             public bool AllowTeammateDamage = false;
 
-            [JsonProperty("PvP - Reflect damage when a player damages ANOTHER player's structure (BuildingBlock / Door / Deployable). Defaults true. Authorized damage (owner, teammates, TC-authorized players) is never reflected.")]
             public bool ReflectPlayerDamageToForeignStructures = true;
 
-            [JsonProperty("NPC -> Player - Per-damage-type scaling. Missing types use 'Default'. Set to 0 to make players immune.")]
             public Dictionary<string, float> NpcToPlayerScaling = new Dictionary<string, float>
             {
                 ["Default"]   = 0.5f,
@@ -308,13 +302,10 @@ namespace Oxide.Plugins
                 ["Generic"]   = 1.0f
             };
 
-            [JsonProperty("NPC -> Structure - Default uniform scaling (used when PerAttackerStructureScaling has no match).")]
             public float NpcToStructureScaling = 0.5f;
 
-            [JsonProperty("NPC -> Structure - Per-attacker overrides. Replaces Damage Control's Heli_bypass; set 'PatrolHelicopter':1.0 to let helis raid at full power.")]
             public Dictionary<string, float> PerAttackerStructureScaling = new Dictionary<string, float>();
 
-            [JsonProperty("Building grade multipliers - Stacks on top of structure scaling. Applies to BuildingBlock only.")]
             public Dictionary<string, float> BuildingGradeMultipliers = new Dictionary<string, float>
             {
                 ["Twigs"]   = 1.0f,
@@ -324,7 +315,6 @@ namespace Oxide.Plugins
                 ["TopTier"] = 1.0f
             };
 
-            [JsonProperty("Per-victim subtype scaling - Per-damage-type multipliers applied when the VICTIM matches a known subtype. Stacks on top of attacker rules.")]
             public Dictionary<string, Dictionary<string, float>> PerVictimSubtypeScaling = new Dictionary<string, Dictionary<string, float>>
             {
                 ["Bear"]            = new Dictionary<string, float> { ["Default"] = 1.0f },
@@ -345,10 +335,8 @@ namespace Oxide.Plugins
                 ["Scientist"]       = new Dictionary<string, float> { ["Default"] = 1.0f }
             };
 
-            [JsonProperty("Time of day source - 'Game' (TOD_Sky cycle) or 'Real' (server wall clock).")]
             public string TimeOfDaySource = "Game";
 
-            [JsonProperty("Time of day multipliers - 24-element arrays per category. All-ones disables. Categories: Global, PvP, NpcToPlayer, NpcToStructure.")]
             public Dictionary<string, float[]> TimeOfDayMultipliers = new Dictionary<string, float[]>
             {
                 [TodGlobal]         = new float[] {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1},
@@ -357,10 +345,8 @@ namespace Oxide.Plugins
                 [TodNpcToStructure] = new float[] {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1}
             };
 
-            [JsonProperty("Treat traps owned by a player as PvP from that owner")]
             public bool TreatPlayerTrapsAsPvp = true;
 
-            [JsonProperty("Damage types to NEVER touch (always vanilla)")]
             public List<string> EnvironmentalDamageTypes = new List<string>
             {
                 "Hunger", "Thirst", "Cold", "Heat", "Drowned",
@@ -368,57 +354,42 @@ namespace Oxide.Plugins
                 "Radiation", "RadiationExposure", "ColdExposure", "Decay"
             };
 
-            [JsonProperty("Yield allow/block decisions to TruePVE if it is loaded")]
             public bool YieldToTruePVE = true;
 
-            [JsonProperty("Log verbosity: None | Reflects | Scaled | All | Trace")]
             [JsonConverter(typeof(StringEnumConverter))]
             public LogLevel Logging = LogLevel.None;
 
-            [JsonProperty("Also write log entries to oxide/logs/PVEDamageGuard/ files for audit")]
             public bool LogToFile = false;
 
-            [JsonProperty("Discord webhook output for reflect/block events (v1.4). Disabled by default; admin sets URL to opt in.")]
             public DiscordWebhookConfig DiscordWebhook = new DiscordWebhookConfig();
 
-            [JsonProperty("Rule matrix configuration (v1.2). Declarative AttackerCategory x VictimCategory -> Action rules with contexts and inheritance. When Enabled=true this REPLACES the case-based scaling for allow/block/reflect decisions; scale actions still compose with TOD, victim subtype, and building grade modifiers.")]
             public RuleMatrixConfig RuleMatrix = new RuleMatrixConfig();
         }
 
         private class DiscordWebhookConfig
         {
-            [JsonProperty("Enabled - master switch. When false the webhook code path is skipped.")]
             public bool Enabled = false;
 
-            [JsonProperty("Discord webhook URL. Get one from Server Settings -> Integrations -> Webhooks in your Discord server.")]
             public string Url = "";
 
-            [JsonProperty("Minimum log level to forward to Discord (None | Reflects | Scaled | All | Trace). Recommended: Reflects.")]
             [JsonConverter(typeof(StringEnumConverter))]
             public LogLevel MinLevel = LogLevel.Reflects;
 
-            [JsonProperty("Maximum webhook messages per minute (Discord caps at 30; default 20 to leave headroom).")]
             public int RateLimitPerMinute = 20;
 
-            [JsonProperty("Prefix prepended to every webhook message. Use to identify which server is reporting.")]
             public string MessagePrefix = "";
 
-            [JsonProperty("Username override that the webhook posts as. Empty = use the webhook's default name.")]
             public string Username = "PVEDamageGuard";
 
-            [JsonProperty("Avatar URL override. Empty = use the webhook's default avatar.")]
             public string AvatarUrl = "";
         }
 
         private class RuleMatrixConfig
         {
-            [JsonProperty("Enabled - master switch. When false the v1.1 case-based scaling logic is used unchanged.")]
             public bool Enabled = false;
 
-            [JsonProperty("Default context name (used when no provider returns a match)")]
             public string DefaultContext = "Default";
 
-            [JsonProperty("Contexts - named rule sets, optionally inheriting from another context")]
             public Dictionary<string, ContextConfig> Contexts = new Dictionary<string, ContextConfig>
             {
                 ["Default"] = new ContextConfig
@@ -466,7 +437,6 @@ namespace Oxide.Plugins
                 }
             };
 
-            [JsonProperty("Context providers - ZoneManager and EventTracker. Order: ZoneManager checked first, then EventTracker proximity, else DefaultContext.")]
             public ContextProvidersConfig ContextProviders = new ContextProvidersConfig();
         }
 
@@ -482,10 +452,8 @@ namespace Oxide.Plugins
             public ZoneManagerProviderConfig ZoneManager = new ZoneManagerProviderConfig();
             public EventTrackerProviderConfig EventTracker = new EventTrackerProviderConfig();
 
-            [JsonProperty("Global event triggers (v1.4): server-wide context flip when Convoy / ArmoredTrain / etc. is active anywhere on the map. Use for events that do not have a single positional marker entity.")]
             public GlobalEventTriggersConfig GlobalEventTriggers = new GlobalEventTriggersConfig();
 
-            [JsonProperty("RaidableBases provider (v1.4): tracks raid base domes via OnRaidableBaseStarted/Ended hooks and proximity-checks the victim position.")]
             public RaidableBasesProviderConfig RaidableBases = new RaidableBasesProviderConfig();
         }
 
@@ -493,7 +461,6 @@ namespace Oxide.Plugins
         {
             public bool Enabled = true;
 
-            [JsonProperty("Map ZoneManager zone flags to context names")]
             public Dictionary<string, string> ZoneFlagToContext = new Dictionary<string, string>
             {
                 ["pvp"] = "AtPvpEvent"
@@ -504,16 +471,12 @@ namespace Oxide.Plugins
         {
             public bool Enabled = true;
 
-            [JsonProperty("Which context to switch to when any tracked event is active within RadiusMeters of the victim (fallback if PerEventContext has no match)")]
             public string TriggerContext = "AtPvpEvent";
 
-            [JsonProperty("Which event entity types trigger this context")]
             public List<string> Events = new List<string> { "BradleyAPC", "BaseHelicopter", "CargoShip" };
 
-            [JsonProperty("Radius from the event entity that activates the context")]
             public float RadiusMeters = 200f;
 
-            [JsonProperty("Per-event context override (v1.6). Map event name to a specific context. Falls back to TriggerContext if event not listed. Example: { \"BradleyAPC\": \"AtBradleyEvent\", \"BaseHelicopter\": \"AtHeliEvent\" }")]
             public Dictionary<string, string> PerEventContext = new Dictionary<string, string>();
         }
 
@@ -521,13 +484,10 @@ namespace Oxide.Plugins
         {
             public bool Enabled = true;
 
-            [JsonProperty("Context to flip to server-wide while any listed global event is active (fallback if PerEventContext has no match)")]
             public string TriggerContext = "AtPvpEvent";
 
-            [JsonProperty("Recognized global event names: Convoy, ArmoredTrain. Listening hooks: OnConvoyStart/Stop, OnTrainEventStart/Stop, OnArmoredTrainEventStart/Stop.")]
             public List<string> Events = new List<string> { "Convoy", "ArmoredTrain" };
 
-            [JsonProperty("Per-event context override (v1.6). Map event name to a specific context. Falls back to TriggerContext if event not listed. Example: { \"Convoy\": \"AtConvoyEvent\", \"ArmoredTrain\": \"AtTrainEvent\" }")]
             public Dictionary<string, string> PerEventContext = new Dictionary<string, string>();
         }
 
@@ -535,14 +495,95 @@ namespace Oxide.Plugins
         {
             public bool Enabled = true;
 
-            [JsonProperty("Context applied when victim is inside a tracked raid base dome")]
             public string TriggerContext = "InRaidableBaseDome";
 
-            [JsonProperty("Override the dome radius the RaidableBases plugin reports. Set to 0 to use the value RaidableBases supplies.")]
             public float RadiusOverrideMeters = 0f;
         }
 
         protected override void LoadDefaultConfig() => _config = new Configuration();
+
+        // v1.7.3 - migrate v1.0 through v1.7.2 long-name config field keys to short names.
+        // Old configs used descriptive JsonProperty names like "PvP - Reflect multiplier (1.0 = full reflect, 0.5 = half)"
+        // which were fragile (text editors mangling smart quotes, encoding swaps, line wraps, embedded commas).
+        // v1.7.3 removed all JsonProperty attributes; Newtonsoft now uses C# property names directly.
+        // This dictionary maps every old long name to its new short name so existing configs auto-upgrade.
+        private static readonly Dictionary<string, string> _legacyFieldRenames = new Dictionary<string, string>
+        {
+            ["PvP - Reflect damage to shooter (master switch)"] = "ReflectPvpEnabled",
+            ["PvP - Reflect multiplier (1.0 = full reflect, 0.5 = half)"] = "ReflectMultiplier",
+            ["PvP - If reflect is disabled, block PvP damage outright instead of letting it through"] = "BlockPvpIfNotReflecting",
+            ["PvP - Allow teammates (Rust team system) to damage each other"] = "AllowTeammateDamage",
+            ["PvP - Reflect damage when a player damages ANOTHER player's structure (BuildingBlock / Door / Deployable). Defaults true. Authorized damage (owner, teammates, TC-authorized players) is never reflected."] = "ReflectPlayerDamageToForeignStructures",
+            ["NPC -> Player - Per-damage-type scaling. Missing types use 'Default'. Set to 0 to make players immune."] = "NpcToPlayerScaling",
+            ["NPC -> Structure - Default uniform scaling (used when PerAttackerStructureScaling has no match)."] = "NpcToStructureScaling",
+            ["NPC -> Structure - Per-attacker overrides. Replaces Damage Control's Heli_bypass; set 'PatrolHelicopter':1.0 to let helis raid at full power."] = "PerAttackerStructureScaling",
+            ["Building grade multipliers - Stacks on top of structure scaling. Applies to BuildingBlock only."] = "BuildingGradeMultipliers",
+            ["Per-victim subtype scaling - Per-damage-type multipliers applied when the VICTIM matches a known subtype. Stacks on top of attacker rules."] = "PerVictimSubtypeScaling",
+            ["Time of day source - 'Game' (TOD_Sky cycle) or 'Real' (server wall clock)."] = "TimeOfDaySource",
+            ["Time of day multipliers - 24-element arrays per category. All-ones disables. Categories: Global, PvP, NpcToPlayer, NpcToStructure."] = "TimeOfDayMultipliers",
+            ["Treat traps owned by a player as PvP from that owner"] = "TreatPlayerTrapsAsPvp",
+            ["Damage types to NEVER touch (always vanilla)"] = "EnvironmentalDamageTypes",
+            ["Yield allow/block decisions to TruePVE if it is loaded"] = "YieldToTruePVE",
+            ["Log verbosity: None | Reflects | Scaled | All | Trace"] = "Logging",
+            ["Also write log entries to oxide/logs/PVEDamageGuard/ files for audit"] = "LogToFile",
+            ["Discord webhook output for reflect/block events (v1.4). Disabled by default; admin sets URL to opt in."] = "DiscordWebhook",
+            ["Rule matrix configuration (v1.2). Declarative AttackerCategory x VictimCategory -> Action rules with contexts and inheritance. When Enabled=true this REPLACES the case-based scaling for allow/block/reflect decisions; scale actions still compose with TOD, victim subtype, and building grade modifiers."] = "RuleMatrix",
+            ["Enabled - master switch. When false the webhook code path is skipped."] = "Enabled",
+            ["Discord webhook URL. Get one from Server Settings -> Integrations -> Webhooks in your Discord server."] = "Url",
+            ["Minimum log level to forward to Discord (None | Reflects | Scaled | All | Trace). Recommended: Reflects."] = "MinLevel",
+            ["Maximum webhook messages per minute (Discord caps at 30; default 20 to leave headroom)."] = "RateLimitPerMinute",
+            ["Prefix prepended to every webhook message. Use to identify which server is reporting."] = "MessagePrefix",
+            ["Username override that the webhook posts as. Empty = use the webhook's default name."] = "Username",
+            ["Avatar URL override. Empty = use the webhook's default avatar."] = "AvatarUrl",
+            ["Enabled - master switch. When false the v1.1 case-based scaling logic is used unchanged."] = "Enabled",
+            ["Default context name (used when no provider returns a match)"] = "DefaultContext",
+            ["Contexts - named rule sets, optionally inheriting from another context"] = "Contexts",
+            ["Context providers - ZoneManager and EventTracker. Order: ZoneManager checked first, then EventTracker proximity, else DefaultContext."] = "ContextProviders",
+            ["Global event triggers (v1.4): server-wide context flip when Convoy / ArmoredTrain / etc. is active anywhere on the map. Use for events that do not have a single positional marker entity."] = "GlobalEventTriggers",
+            ["RaidableBases provider (v1.4): tracks raid base domes via OnRaidableBaseStarted/Ended hooks and proximity-checks the victim position."] = "RaidableBases",
+            ["Map ZoneManager zone flags to context names"] = "ZoneFlagToContext",
+            ["Which context to switch to when any tracked event is active within RadiusMeters of the victim (fallback if PerEventContext has no match)"] = "TriggerContext",
+            ["Which event entity types trigger this context"] = "Events",
+            ["Radius from the event entity that activates the context"] = "RadiusMeters",
+            ["Per-event context override (v1.6). Map event name to a specific context. Falls back to TriggerContext if event not listed. Example: { \"BradleyAPC\": \"AtBradleyEvent\", \"BaseHelicopter\": \"AtHeliEvent\" }"] = "PerEventContext",
+            ["Context to flip to server-wide while any listed global event is active (fallback if PerEventContext has no match)"] = "TriggerContext",
+            ["Recognized global event names: Convoy, ArmoredTrain. Listening hooks: OnConvoyStart/Stop, OnTrainEventStart/Stop, OnArmoredTrainEventStart/Stop."] = "Events",
+            ["Per-event context override (v1.6). Map event name to a specific context. Falls back to TriggerContext if event not listed. Example: { \"Convoy\": \"AtConvoyEvent\", \"ArmoredTrain\": \"AtTrainEvent\" }"] = "PerEventContext",
+            ["Context applied when victim is inside a tracked raid base dome"] = "TriggerContext",
+            ["Override the dome radius the RaidableBases plugin reports. Set to 0 to use the value RaidableBases supplies."] = "RadiusOverrideMeters",
+        };
+
+        private bool TryMigrateLegacyConfig()
+        {
+            var configPath = Path.Combine(Interface.Oxide.ConfigDirectory, "PVEDamageGuard.json");
+            if (!File.Exists(configPath)) return false;
+            string raw;
+            try { raw = File.ReadAllText(configPath); }
+            catch { return false; }
+
+            bool changed = false;
+            foreach (var entry in _legacyFieldRenames)
+            {
+                var oldKey = "\"" + entry.Key + "\":";
+                var newKey = "\"" + entry.Value + "\":";
+                if (raw.IndexOf(oldKey, StringComparison.Ordinal) >= 0)
+                {
+                    raw = raw.Replace(oldKey, newKey);
+                    changed = true;
+                }
+            }
+            if (changed)
+            {
+                try
+                {
+                    File.WriteAllText(configPath, raw);
+                    Puts("Migrated legacy long-name config field keys to v1.7.3 short names.");
+                    return true;
+                }
+                catch (Exception e) { PrintWarning($"Config migration write failed: {e.Message}"); }
+            }
+            return false;
+        }
 
         protected override void LoadConfig()
         {
@@ -554,6 +595,17 @@ namespace Oxide.Plugins
             }
             catch
             {
+                // First-load failure - try the legacy-name migration once, then retry
+                if (TryMigrateLegacyConfig())
+                {
+                    try
+                    {
+                        base.LoadConfig();
+                        _config = Config.ReadObject<Configuration>();
+                        if (_config != null) { SaveConfig(); return; }
+                    }
+                    catch { /* fall through to default */ }
+                }
                 PrintWarning("Config file is corrupt, regenerating default. Old file kept as .jsonError");
                 LoadDefaultConfig();
             }
