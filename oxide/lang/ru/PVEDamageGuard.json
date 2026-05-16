@@ -83,5 +83,10 @@
   "HelpUi":         "/pdg ui - открыть встроенную CUI панель администратора. Требуется право pvedamageguard.admin.",
   "HelpClose":      "/pdg close - закрыть вашу CUI панель.",
   "UiOnlyInGame":   "/pdg ui должна выполняться игроком в игре.",
+  "HelpStats":      "/pdg stats [игрок] - показать статистику урона. Без аргумента - ваша статистика. Админ: SteamID или часть имени другого игрока.",
+  "StatsOnlyInGame": "/pdg stats без аргумента должна выполняться игроком в игре.",
+  "StatsNotFound":  "Игрок '{0}' не найден.",
+  "StatsNone":      "Для {0} пока нет записанной статистики.",
+  "StatsReport":    "Статистика для {0}:\n  Урон по игрокам: {1:F1}   От игроков: {2:F1}   От NPC: {3:F1}\n  Отражённый урон по мне: {4:F1} ({5} отражений)\n  NPC убито: {6}   Смертей в PvP: {7}",
   "StatusBlock":    "PVE Damage Guard v{0}\n  Отражение: {1} ({2:F2}x), БлокPvPбезОтражения: {3}, Союзники: {4}\n  NPC->Игрок по умолч: {5:F2}, NPC->Постройка по умолч: {6:F2}, Ловушки как PvP: {7}\n  Логирование: {8} (файл={9}), Уступать TruePVE: {10}, Discord вебхук: {22}\n  Возможности: TOD={11}, VictimSubtype={12}, BuildingGrade={13}, PerAttackerStruct={14}, RuleMatrix={15}\n  Текущий час: {16} ({17}), События: {18} сущ / {20} куп / {21} глоб, Проблемы конфига: {19}\n  Команды: /pdg reload | log | logfile | scale | hour | context | history | test | preset | import | validate | events | webhook | help"
 }

@@ -2,6 +2,37 @@
 
 All notable changes to PVEDamageGuard are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning is [SemVer](https://semver.org/).
 
+## [1.7.0] - 2026-05-16
+
+Second CUI slice. Logging and History tabs go functional with live-streaming updates; per-player damage stats backend lands with a `/pdg stats` command and a public API hook. No breaking changes.
+
+### Added
+
+- **Logging CUI tab** - live-streaming view of the last 100 log lines from the in-memory ring buffer. Color-coded by level (coral for Reflects, cyan for Scaled, white for All, gray for Trace). Filter button row at the top lets the admin set the minimum level to display (None / Reflects / Scaled / All / Trace); per-player filter state is preserved while the panel is open. Auto-refreshes every 2 seconds.
+- **History CUI tab** - paginated view of the `_history` ring buffer (12 rows per page) with prev/next navigation. Columns: time, tag, attacker classification + name, victim classification + name, damage, action, context. Truncates fields to fit the row width.
+- **CUI refresh timer** - `timer.Every(2f, RefreshOpenCuiPanels)` re-renders open Logging and History panels for live updates. Static tabs (Status, Rules, Scaling) are not re-rendered to avoid pointless UI churn.
+- **Per-player damage statistics**. New `PlayerStats` class tracks DamageDealtToPlayers, DamageReflectedBack, DamageTakenFromNpcs, DamageTakenFromPlayers, NpcsKilled, PvpKillsAgainstMe, ReflectsAgainstMe, FirstSeen, LastSeen. Persisted to `oxide/data/PVEDamageGuard/stats.json` every 60 seconds and on plugin unload.
+- **`API_GetPlayerStats(BasePlayer)`** public hook returns a `Dictionary<string, object>` with all stat fields. For integration with stat plugins, Discord stat bots, server panel tools.
+- **`/pdg stats [player]`** chat command. No argument shows the requesting player's stats. With `pvedamageguard.admin`, accepts a Steam ID or partial name to look up another player.
+- **`OnEntityDeath` hook** - increments `NpcsKilled` when a player kills an NPC, `PvpKillsAgainstMe` when a player dies to another player. Death attribution flows through `ResolveRootAttacker` so trap/projectile/explosive kills credit the actual player.
+- **`pdgui.logfilter <level>` console command** - handles Logging tab filter button presses.
+- **`pdgui.histpage <prev|next|first>` console command** - handles History tab pagination button presses.
+
+### Changed
+
+- `Log()` now always pushes into the `_recentLogLines` ring buffer regardless of whether the line clears the console log threshold. This means the Logging CUI tab has data even when `/pdg log None` is set (which is the common production setup).
+- `OnServerInitialized` now loads `PlayerStats` from disk and starts the periodic save timer plus the CUI refresh timer.
+- `Unload` saves stats to disk and destroys all open panels cleanly. Timers are auto-cleaned by Oxide.
+- `DoReflect` records reflected damage to the attacker's stats.
+- The NPC->Player scaling branches in both the legacy scaling path and the rule matrix scale path now record `DamageTakenFromNpcs`.
+
+### Notes
+
+- The history ring buffer is still 100 entries (set in v1.2). At 12 rows per page that's 9 pages of history. The page indicator at the top of the History tab shows `page N of M` so admins can navigate.
+- Stats persistence uses Oxide's `Interface.Oxide.DataFileSystem`. The data file is JSON-serialized at `oxide/data/PVEDamageGuard/stats.json` and is human-readable for backups or external processing.
+- Filter state and pagination state for the CUI tabs are stored in-memory only and reset when the panel is closed (or the plugin reloads). This is intentional - panel state should not survive plugin lifecycle changes.
+- The Logging tab filter is independent of `/pdg log <level>` - the filter only affects what's shown in the panel, not what's logged to console or file. You can have `/pdg log None` (silent console) and still see live damage events flowing through the panel.
+
 ## [1.6.0] - 2026-05-16
 
 CUI foundation release. First of four CUI minors leading up to v2.0; ships the panel framework, tab system, theme, and a read-only Status tab. Other tabs are present as placeholders with helpful "coming in vX.Y" messages. Plus per-event-context overrides for the rule matrix.

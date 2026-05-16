@@ -15,8 +15,8 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("PVE Damage Guard", "Gabriel Dungan (DunganSoft Technologies)", "1.6.0")]
-    [Description("Future-proof NPC classifier, declarative rule matrix, per-attacker/per-victim damage scaling, time-of-day modifiers, ZoneManager / RaidableBases / Convoy / Armored Train context switching, reflect-as-a-service, Discord webhook output, Damage Control config import, preset configurations, config validation, classification cache, hook timing telemetry, Carbon framework support, in-game CUI admin panel, and per-event context overrides for PVE Rust servers.")]
+    [Info("PVE Damage Guard", "Gabriel Dungan (DunganSoft Technologies)", "1.7.0")]
+    [Description("Future-proof NPC classifier, declarative rule matrix, per-attacker/per-victim damage scaling, time-of-day modifiers, ZoneManager / RaidableBases / Convoy / Armored Train context switching, reflect-as-a-service, Discord webhook output, Damage Control config import, preset configurations, config validation, classification cache, hook timing telemetry, Carbon framework support, in-game CUI admin panel with live-streaming Logging and paginated History tabs, per-player damage statistics, and per-event context overrides for PVE Rust servers.")]
     public class PVEDamageGuard : CovalencePlugin
     {
         [PluginReference] private Plugin TruePVE;
@@ -79,6 +79,19 @@ namespace Oxide.Plugins
         // Self-test results (v1.5)
         private bool _selfTestPassed = true;
         private string _selfTestSummary = "Self-test not run yet.";
+
+        // Recent log lines for the CUI Logging tab (v1.7)
+        private readonly Queue<LogLine> _recentLogLines = new Queue<LogLine>();
+        private const int LogLineCapacity = 100;
+
+        // Per-player stats (v1.7), keyed by Steam ID
+        private Dictionary<ulong, PlayerStats> _playerStats = new Dictionary<ulong, PlayerStats>();
+
+        // Per-player log-level filter for the Logging CUI tab (v1.7). Default Reflects.
+        private readonly Dictionary<ulong, LogLevel> _uiLogFilter = new Dictionary<ulong, LogLevel>();
+        // Per-player History tab pagination state (v1.7), zero-based page index.
+        private readonly Dictionary<ulong, int> _uiHistoryPage = new Dictionary<ulong, int>();
+        private const int HistoryRowsPerPage = 12;
 
         // CUI state (v1.6): track which players currently have the panel open and on which tab.
         private readonly Dictionary<ulong, string> _openPanels = new Dictionary<ulong, string>();
@@ -147,6 +160,29 @@ namespace Oxide.Plugins
             public NpcCategory Category;
             public string Subtype;
             public bool HasSubtype; // distinguishes "not yet computed" from "computed to null"
+        }
+
+        // v1.7 - one ring-buffer entry for the CUI Logging tab
+        private struct LogLine
+        {
+            public DateTime At;
+            public LogLevel Level;
+            public string Message;
+        }
+
+        // v1.7 - per-player stats (also serialized to oxide/data/PVEDamageGuard/stats.json)
+        public class PlayerStats
+        {
+            public string Name;
+            public double DamageDealtToPlayers;
+            public double DamageReflectedBack;     // damage that was reflected back to me when I attacked someone
+            public double DamageTakenFromNpcs;
+            public double DamageTakenFromPlayers;
+            public long   NpcsKilled;
+            public long   PvpKillsAgainstMe;       // I died to another player
+            public long   ReflectsAgainstMe;       // how many times I got reflected (regardless of total damage)
+            public DateTime FirstSeen;
+            public DateTime LastSeen;
         }
 
         private class HistoryEntry
@@ -588,6 +624,9 @@ namespace Oxide.Plugins
             ValidateConfig();
             RunSelfTest();
             DetectCompanions();
+            LoadPlayerStats();
+            timer.Every(60f, SavePlayerStats);
+            timer.Every(2f, RefreshOpenCuiPanels);
             // Seed event tracker with currently-spawned event entities
             if (_ruleMatrixEnabled && _config.RuleMatrix.ContextProviders.EventTracker.Enabled)
             {
@@ -820,6 +859,26 @@ namespace Oxide.Plugins
             return action is AllowAction;
         }
 
+        [HookMethod("API_GetPlayerStats")]
+        public Dictionary<string, object> API_GetPlayerStats(BasePlayer player)
+        {
+            if (player == null) return null;
+            if (!_playerStats.TryGetValue(player.userID, out var s)) return null;
+            return new Dictionary<string, object>
+            {
+                ["Name"] = s.Name,
+                ["DamageDealtToPlayers"] = s.DamageDealtToPlayers,
+                ["DamageReflectedBack"]  = s.DamageReflectedBack,
+                ["DamageTakenFromNpcs"]  = s.DamageTakenFromNpcs,
+                ["DamageTakenFromPlayers"] = s.DamageTakenFromPlayers,
+                ["NpcsKilled"]            = s.NpcsKilled,
+                ["PvpKillsAgainstMe"]     = s.PvpKillsAgainstMe,
+                ["ReflectsAgainstMe"]     = s.ReflectsAgainstMe,
+                ["FirstSeen"]             = s.FirstSeen.ToString("o"),
+                ["LastSeen"]              = s.LastSeen.ToString("o"),
+            };
+        }
+
         [HookMethod("API_IsAllowed")]
         public bool API_IsAllowed(BaseEntity attacker, BaseEntity victim)
         {
@@ -943,6 +1002,8 @@ namespace Oxide.Plugins
                 bool attackerIsAnyNpc = attackerCat == NpcCategory.HumanNpc
                                       || attackerCat == NpcCategory.AnimalNpc
                                       || attackerCat == NpcCategory.VehicleNpc;
+                if (attackerIsAnyNpc && victimCat == NpcCategory.RealPlayer)
+                    StatsRecordNpcDamageToPlayer(victimPlayer, info.damageTypes?.Total() ?? 0f);
                 bool victimIsStruct = victimCat == NpcCategory.Building || victimCat == NpcCategory.Deployable;
 
                 float compose = todGlobal;
@@ -1239,6 +1300,7 @@ namespace Oxide.Plugins
                 float npcToPlayerTod = _todEnabled ? GetTodMult(TodNpcToPlayer, hour) : 1f;
                 ApplyNpcToPlayerScaling(info, todGlobal * npcToPlayerTod);
                 ApplyPerVictimSubtypeScaling(info, victimSubtype, 1f);
+                StatsRecordNpcDamageToPlayer(victimPlayer, info.damageTypes?.Total() ?? 0f);
                 LogHit(LogLevel.Scaled, "npc->player-scaled", info, entity, attackerCat, victimCat, null, "scaled");
                 return null;
             }
@@ -1480,6 +1542,97 @@ namespace Oxide.Plugins
 
         #endregion
 
+        #region Per-player stats (v1.7)
+
+        private const string StatsDataFileName = "PVEDamageGuard/stats";
+
+        private void LoadPlayerStats()
+        {
+            try
+            {
+                _playerStats = Interface.Oxide.DataFileSystem.ReadObject<Dictionary<ulong, PlayerStats>>(StatsDataFileName)
+                               ?? new Dictionary<ulong, PlayerStats>();
+            }
+            catch
+            {
+                PrintWarning("stats.json corrupt or missing, starting fresh.");
+                _playerStats = new Dictionary<ulong, PlayerStats>();
+            }
+        }
+
+        private void SavePlayerStats()
+        {
+            try { Interface.Oxide.DataFileSystem.WriteObject(StatsDataFileName, _playerStats); }
+            catch (Exception e) { PrintWarning($"Failed to save stats: {e.Message}"); }
+        }
+
+        private PlayerStats GetOrCreateStats(BasePlayer player)
+        {
+            if (player == null) return null;
+            if (!_playerStats.TryGetValue(player.userID, out var s))
+            {
+                s = new PlayerStats { Name = player.displayName, FirstSeen = DateTime.UtcNow };
+                _playerStats[player.userID] = s;
+            }
+            s.LastSeen = DateTime.UtcNow;
+            if (!string.IsNullOrEmpty(player.displayName)) s.Name = player.displayName;
+            return s;
+        }
+
+        // Track damage taken from NPC (called from HandleViaScaling and HandleViaRuleMatrix scale paths)
+        private void StatsRecordNpcDamageToPlayer(BasePlayer victim, float total)
+        {
+            if (victim == null || total <= 0f) return;
+            var s = GetOrCreateStats(victim);
+            if (s != null) s.DamageTakenFromNpcs += total;
+        }
+
+        // Track PvP damage taken (only relevant when PvP is NOT reflected, e.g. AllowTeammateDamage)
+        private void StatsRecordPvpDamageTaken(BasePlayer victim, BasePlayer attacker, float total)
+        {
+            if (victim == null || attacker == null || total <= 0f) return;
+            var sv = GetOrCreateStats(victim);
+            var sa = GetOrCreateStats(attacker);
+            if (sv != null) sv.DamageTakenFromPlayers += total;
+            if (sa != null) sa.DamageDealtToPlayers += total;
+        }
+
+        // Track PvP reflect: damage that bounced back to the attacker
+        private void StatsRecordReflect(BasePlayer attacker, BasePlayer victim, float total)
+        {
+            if (attacker == null || victim == null || total <= 0f) return;
+            var sa = GetOrCreateStats(attacker);
+            if (sa != null) { sa.DamageReflectedBack += total; sa.ReflectsAgainstMe += 1; }
+            // The victim gets credit for damage "dealt" via reflect
+            var sv = GetOrCreateStats(victim);
+            if (sv != null) sv.DamageDealtToPlayers += total;
+        }
+
+        private void OnEntityDeath(BaseCombatEntity entity, HitInfo info)
+        {
+            if (entity == null || info == null) return;
+            var rootAttacker = ResolveRootAttacker(info) as BasePlayer;
+            if (rootAttacker == null || rootAttacker.IsNpc) return;
+            var sa = GetOrCreateStats(rootAttacker);
+            if (sa == null) return;
+
+            // Player killed an NPC
+            if (entity is BaseNpc || (entity is BasePlayer eb && eb.IsNpc) || entity is NPCPlayer
+                || entity is BaseHelicopter || entity is BradleyAPC)
+            {
+                sa.NpcsKilled += 1;
+                return;
+            }
+            // Player killed another real player (PvP kill)
+            if (entity is BasePlayer victim && !victim.IsNpc && victim != rootAttacker)
+            {
+                var sv = GetOrCreateStats(victim);
+                if (sv != null) sv.PvpKillsAgainstMe += 1;
+            }
+        }
+
+        #endregion
+
         #region Performance and diagnostics (v1.5)
 
         // Self-test verifies that the Rust types our classifier depends on resolve correctly at runtime.
@@ -1633,8 +1786,8 @@ namespace Oxide.Plugins
             switch (tab.ToLowerInvariant())
             {
                 case "status":  BuildStatusTabContent(container); break;
-                case "logging": BuildPlaceholderTabContent(container, "Logging", "Live log streaming arrives in v1.7. For now, use /pdg log <level>."); break;
-                case "history": BuildPlaceholderTabContent(container, "History", "Paginated history view arrives in v1.7. For now, use /pdg history [N]."); break;
+                case "logging": BuildLoggingTabContent(container, player); break;
+                case "history": BuildHistoryTabContent(container, player); break;
                 case "rules":   BuildPlaceholderTabContent(container, "Rules",   "Rule matrix browser arrives in v1.8. For now, use /pdg context and edit the JSON config."); break;
                 case "scaling": BuildPlaceholderTabContent(container, "Scaling", "Sliders for live scaling arrive in v1.9. For now, use /pdg scale <type> <mult>."); break;
             }
@@ -1703,6 +1856,179 @@ namespace Oxide.Plugins
             }, CuiContentPanel);
         }
 
+        // v1.7 - Logging tab: color-coded recent log lines with level filter row
+        private void BuildLoggingTabContent(CuiElementContainer container, BasePlayer player)
+        {
+            LogLevel filter = LogLevel.Reflects;
+            if (_uiLogFilter.TryGetValue(player.userID, out var saved)) filter = saved;
+
+            // Header: title + level filter row
+            container.Add(new CuiLabel
+            {
+                Text = { Text = $"Live Log (filter: {filter}+) - last {_recentLogLines.Count}", FontSize = 14,
+                         Align = TextAnchor.MiddleLeft, Color = CuiAccentColor },
+                RectTransform = { AnchorMin = "0.02 0.92", AnchorMax = "0.7 0.99" },
+            }, CuiContentPanel);
+
+            // Level filter buttons (right side of header)
+            BuildLogFilterButton(container, "None",     LogLevel.None,     filter, 0.70f, 0.755f);
+            BuildLogFilterButton(container, "Reflects", LogLevel.Reflects, filter, 0.76f, 0.815f);
+            BuildLogFilterButton(container, "Scaled",   LogLevel.Scaled,   filter, 0.82f, 0.875f);
+            BuildLogFilterButton(container, "All",      LogLevel.All,      filter, 0.88f, 0.935f);
+            BuildLogFilterButton(container, "Trace",    LogLevel.Trace,    filter, 0.94f, 0.995f);
+
+            // Log lines
+            var snapshot = _recentLogLines.ToArray();
+            // Filter
+            var visible = new List<LogLine>();
+            for (int i = snapshot.Length - 1; i >= 0; i--)
+                if (snapshot[i].Level >= filter) visible.Add(snapshot[i]);
+
+            int maxRows = 20;
+            int rows = Math.Min(maxRows, visible.Count);
+            float topY = 0.88f;
+            float rowH = (topY - 0.04f) / maxRows;
+            for (int i = 0; i < rows; i++)
+            {
+                var line = visible[i];
+                var color = LogLevelColor(line.Level);
+                container.Add(new CuiLabel
+                {
+                    Text = { Text = $"<color={color}>[{line.At:HH:mm:ss}] [{line.Level}]</color> {Escape(line.Message)}",
+                             FontSize = 11, Align = TextAnchor.MiddleLeft, Color = CuiTextColor },
+                    RectTransform = {
+                        AnchorMin = $"0.02 {topY - rowH * (i + 1)}",
+                        AnchorMax = $"0.98 {topY - rowH * i}"
+                    },
+                }, CuiContentPanel);
+            }
+
+            if (visible.Count == 0)
+            {
+                container.Add(new CuiLabel
+                {
+                    Text = { Text = $"<color=#888888>No log lines at or above {filter}. Lower the filter or trigger some damage events.</color>",
+                             FontSize = 12, Align = TextAnchor.MiddleCenter, Color = CuiMutedTextColor },
+                    RectTransform = { AnchorMin = "0.02 0.4", AnchorMax = "0.98 0.6" },
+                }, CuiContentPanel);
+            }
+        }
+
+        private void BuildLogFilterButton(CuiElementContainer container, string label, LogLevel level,
+                                          LogLevel currentFilter, float xMin, float xMax)
+        {
+            bool active = level == currentFilter;
+            container.Add(new CuiButton
+            {
+                Button = { Color = active ? CuiAccentDim : CuiButtonColor,
+                           Command = $"pdgui.logfilter {level}" },
+                RectTransform = { AnchorMin = $"{xMin} 0.92", AnchorMax = $"{xMax} 0.99" },
+                Text = { Text = label, FontSize = 10, Align = TextAnchor.MiddleCenter, Color = CuiTextColor },
+            }, CuiContentPanel);
+        }
+
+        private string LogLevelColor(LogLevel level)
+        {
+            switch (level)
+            {
+                case LogLevel.Reflects: return "#ee7d5a"; // coral
+                case LogLevel.Scaled:   return "#6bb5ee"; // cyan
+                case LogLevel.All:      return "#ffffff"; // white
+                case LogLevel.Trace:    return "#888888"; // gray
+                default:                return "#aaaaaa";
+            }
+        }
+
+        // CUI text can have angle-bracket-like content; escape what could break our tag wrapping.
+        private static string Escape(string s) => s == null ? "" : s.Replace("<", "&lt;").Replace(">", "&gt;");
+
+        // v1.7 - History tab: paginated rows + prev/next buttons
+        private void BuildHistoryTabContent(CuiElementContainer container, BasePlayer player)
+        {
+            var entries = _history.ToArray();
+            int page = 0;
+            _uiHistoryPage.TryGetValue(player.userID, out page);
+            int totalPages = Math.Max(1, (entries.Length + HistoryRowsPerPage - 1) / HistoryRowsPerPage);
+            if (page >= totalPages) page = totalPages - 1;
+            if (page < 0) page = 0;
+
+            // Header
+            container.Add(new CuiLabel
+            {
+                Text = { Text = $"History - page {page + 1} of {totalPages} ({entries.Length} hits in ring buffer)",
+                         FontSize = 14, Align = TextAnchor.MiddleLeft, Color = CuiAccentColor },
+                RectTransform = { AnchorMin = "0.02 0.92", AnchorMax = "0.7 0.99" },
+            }, CuiContentPanel);
+
+            // Prev / Next buttons
+            container.Add(new CuiButton
+            {
+                Button = { Color = page > 0 ? CuiButtonColor : "0.15 0.15 0.18 0.5",
+                           Command = page > 0 ? "pdgui.histpage prev" : "" },
+                RectTransform = { AnchorMin = "0.78 0.92", AnchorMax = "0.86 0.99" },
+                Text = { Text = "< Prev", FontSize = 11, Align = TextAnchor.MiddleCenter, Color = CuiTextColor },
+            }, CuiContentPanel);
+            container.Add(new CuiButton
+            {
+                Button = { Color = page < totalPages - 1 ? CuiButtonColor : "0.15 0.15 0.18 0.5",
+                           Command = page < totalPages - 1 ? "pdgui.histpage next" : "" },
+                RectTransform = { AnchorMin = "0.87 0.92", AnchorMax = "0.95 0.99" },
+                Text = { Text = "Next >", FontSize = 11, Align = TextAnchor.MiddleCenter, Color = CuiTextColor },
+            }, CuiContentPanel);
+
+            // Column header
+            container.Add(new CuiLabel
+            {
+                Text = { Text = "<color=#888888>Time     Tag                       Attacker -> Victim                       Dmg    Action          Ctx</color>",
+                         FontSize = 10, Align = TextAnchor.MiddleLeft, Color = CuiMutedTextColor },
+                RectTransform = { AnchorMin = "0.02 0.86", AnchorMax = "0.98 0.91" },
+            }, CuiContentPanel);
+
+            // Rows (newest first, paginated)
+            // Reverse so newest is at top of the buffer
+            int start = entries.Length - 1 - page * HistoryRowsPerPage;
+            int end = Math.Max(-1, start - HistoryRowsPerPage);
+            float topY = 0.84f;
+            float rowH = (topY - 0.04f) / HistoryRowsPerPage;
+            int rowIdx = 0;
+            for (int i = start; i > end && i >= 0; i--, rowIdx++)
+            {
+                var h = entries[i];
+                var ctxPart = h.Context != null ? h.Context : "-";
+                var line = string.Format("{0:HH:mm:ss} {1,-25} {2,-14}({3,-10}) -> {4,-12}({5,-10}) {6,5:F1}  {7,-15} {8}",
+                    h.At, Truncate(h.Tag, 25),
+                    Truncate(h.AttackerCat, 14), Truncate(h.AttackerName, 10),
+                    Truncate(h.VictimCat, 12), Truncate(h.VictimName, 10),
+                    h.Damage, Truncate(h.Action, 15), Truncate(ctxPart, 12));
+                container.Add(new CuiLabel
+                {
+                    Text = { Text = Escape(line), FontSize = 10,
+                             Align = TextAnchor.MiddleLeft, Color = CuiTextColor },
+                    RectTransform = {
+                        AnchorMin = $"0.02 {topY - rowH * (rowIdx + 1)}",
+                        AnchorMax = $"0.98 {topY - rowH * rowIdx}"
+                    },
+                }, CuiContentPanel);
+            }
+
+            if (entries.Length == 0)
+            {
+                container.Add(new CuiLabel
+                {
+                    Text = { Text = "<color=#888888>No history yet. Trigger some damage events to populate the ring buffer.</color>",
+                             FontSize = 12, Align = TextAnchor.MiddleCenter, Color = CuiMutedTextColor },
+                    RectTransform = { AnchorMin = "0.02 0.4", AnchorMax = "0.98 0.6" },
+                }, CuiContentPanel);
+            }
+        }
+
+        private static string Truncate(string s, int max)
+        {
+            if (string.IsNullOrEmpty(s)) return "";
+            if (s.Length <= max) return s;
+            return s.Substring(0, max - 1) + ".";
+        }
+
         private void HidePanel(BasePlayer player)
         {
             if (player == null) return;
@@ -1729,6 +2055,21 @@ namespace Oxide.Plugins
         private void Unload()
         {
             HideAllPanels();
+            SavePlayerStats();
+            // Timers auto-destroyed by Oxide on plugin unload.
+        }
+
+        private void RefreshOpenCuiPanels()
+        {
+            if (_openPanels.Count == 0) return;
+            foreach (var kv in _openPanels.ToList())
+            {
+                // Only Logging and History tabs need live updates; static tabs don't churn the UI.
+                if (kv.Value != "logging" && kv.Value != "history") continue;
+                var p = BasePlayer.FindByID(kv.Key);
+                if (p == null || !p.IsConnected) { _openPanels.Remove(kv.Key); continue; }
+                ShowPanel(p, kv.Value); // re-render
+            }
         }
 
         [ConsoleCommand("pdgui.tab")]
@@ -1747,6 +2088,40 @@ namespace Oxide.Plugins
             var p = arg.Player();
             if (p == null) return;
             HidePanel(p);
+        }
+
+        // v1.7 - log filter button handler from Logging tab
+        [ConsoleCommand("pdgui.logfilter")]
+        private void CcmdPdguiLogFilter(ConsoleSystem.Arg arg)
+        {
+            var p = arg.Player();
+            if (p == null) return;
+            if (!HasUiPerm(p)) return;
+            if (arg.Args == null || arg.Args.Length == 0) return;
+            if (!Enum.TryParse<LogLevel>(arg.Args[0], true, out var level)) return;
+            _uiLogFilter[p.userID] = level;
+            ShowPanel(p, "logging");
+        }
+
+        // v1.7 - history page navigation from History tab
+        [ConsoleCommand("pdgui.histpage")]
+        private void CcmdPdguiHistPage(ConsoleSystem.Arg arg)
+        {
+            var p = arg.Player();
+            if (p == null) return;
+            if (!HasUiPerm(p)) return;
+            if (arg.Args == null || arg.Args.Length == 0) return;
+            int page;
+            _uiHistoryPage.TryGetValue(p.userID, out page);
+            switch (arg.Args[0].ToLowerInvariant())
+            {
+                case "next": page += 1; break;
+                case "prev": page -= 1; break;
+                case "first": page = 0; break;
+            }
+            if (page < 0) page = 0;
+            _uiHistoryPage[p.userID] = page;
+            ShowPanel(p, "history");
         }
 
         private bool HasUiPerm(BasePlayer p)
@@ -2197,6 +2572,7 @@ namespace Oxide.Plugins
                 case "cache":    return Lang("HelpCache");
                 case "ui":       return Lang("HelpUi");
                 case "close":    return Lang("HelpClose");
+                case "stats":    return Lang("HelpStats");
                 case "help":     return Lang("HelpHelp");
                 default:         return string.Format(Lang("HelpUnknown"), subcommand);
             }
@@ -2253,6 +2629,7 @@ namespace Oxide.Plugins
             try { attacker.Hurt(total, major, victim, true); }
             finally { _reflectInFlight.Remove(attacker.userID); }
             LogReflect(victim, attacker, total, major);
+            StatsRecordReflect(attacker, victim, total);
         }
 
         #endregion
@@ -2263,6 +2640,11 @@ namespace Oxide.Plugins
 
         private void Log(LogLevel level, string msg)
         {
+            // v1.7 - always push into the CUI ring buffer (regardless of console log level)
+            // so the Logging tab has live data even when the console is silent.
+            _recentLogLines.Enqueue(new LogLine { At = DateTime.Now, Level = level, Message = msg });
+            while (_recentLogLines.Count > LogLineCapacity) _recentLogLines.Dequeue();
+
             if (!LogAt(level)) return;
             Puts(msg);
             if (_config.LogToFile)
@@ -2386,6 +2768,7 @@ namespace Oxide.Plugins
                 case "cache":   CmdCache(player, args); break;
                 case "ui":      CmdUi(player); break;
                 case "close":   CmdUiClose(player); break;
+                case "stats":   CmdStats(player, args); break;
                 default:
                     player.Reply(Lang("UsageRoot", player.Id));
                     break;
@@ -2558,6 +2941,31 @@ namespace Oxide.Plugins
             var bp = player.Object as BasePlayer;
             if (bp == null) return;
             HidePanel(bp);
+        }
+
+        private void CmdStats(IPlayer player, string[] args)
+        {
+            // /pdg stats              -> show requesting player's stats
+            // /pdg stats <SteamId>    -> show that player's stats (admin only)
+            BasePlayer target = player.Object as BasePlayer;
+            if (args.Length >= 2)
+            {
+                if (!player.IsAdmin && !player.HasPermission(PermAdmin))
+                { player.Reply(Lang("NoPermission", player.Id)); return; }
+                if (ulong.TryParse(args[1], out var sid))
+                    target = BasePlayer.FindByID(sid) ?? BasePlayer.FindSleeping(sid);
+                else
+                    target = BasePlayer.Find(args[1]);
+                if (target == null) { player.Reply(string.Format(Lang("StatsNotFound", player.Id), args[1])); return; }
+            }
+            if (target == null) { player.Reply(Lang("StatsOnlyInGame", player.Id)); return; }
+            if (!_playerStats.TryGetValue(target.userID, out var s))
+            { player.Reply(string.Format(Lang("StatsNone", player.Id), target.displayName)); return; }
+            player.Reply(string.Format(Lang("StatsReport", player.Id),
+                s.Name ?? target.displayName,
+                s.DamageDealtToPlayers, s.DamageTakenFromPlayers, s.DamageTakenFromNpcs,
+                s.DamageReflectedBack, s.ReflectsAgainstMe,
+                s.NpcsKilled, s.PvpKillsAgainstMe));
         }
 
         private void CmdCache(IPlayer player, string[] args)
@@ -2946,6 +3354,11 @@ namespace Oxide.Plugins
                 ["HelpUi"]          = "/pdg ui - open the in-game CUI admin panel. Requires pvedamageguard.admin permission.",
                 ["HelpClose"]       = "/pdg close - close the in-game CUI panel for you.",
                 ["UiOnlyInGame"]    = "/pdg ui must be run by an in-game player.",
+                ["HelpStats"]       = "/pdg stats [player] - show damage stats. No arg = your stats. Admin: pass SteamID or partial name to look up another player.",
+                ["StatsOnlyInGame"] = "/pdg stats with no arg must be run by an in-game player.",
+                ["StatsNotFound"]   = "Player '{0}' not found.",
+                ["StatsNone"]       = "No stats recorded yet for {0}.",
+                ["StatsReport"]     = "Stats for {0}:\n  Damage dealt to players: {1:F1}   Taken from players: {2:F1}   Taken from NPCs: {3:F1}\n  Damage reflected back at me: {4:F1} ({5} reflects)\n  NPCs killed: {6}   PvP deaths: {7}",
                 ["StatusBlock"]     =
                     "PVE Damage Guard v{0}\n" +
                     "  Reflect: {1} ({2:F2}x), BlockPvpIfNotReflecting: {3}, Teammates: {4}\n" +

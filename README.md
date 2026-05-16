@@ -53,7 +53,7 @@ See [docs/installation.md](docs/installation.md) for full setup, [docs/configura
 
 ## Status
 
-**v1.6.0** - first slice of the CUI panel that will be feature-complete at v2.0. Ships the CUI framework + read-only Status tab + per-event-context overrides for the rule matrix. `/pdg ui` opens the panel.
+**v1.7.0** - second CUI slice. Logging and History tabs go live with auto-refresh and filters. Per-player damage stats backend with `/pdg stats` and `API_GetPlayerStats` for plugin integration.
 
 See [CHANGELOG.md](CHANGELOG.md) for version history and [ROADMAP.md](ROADMAP.md) for planned features.
 

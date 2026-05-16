@@ -63,7 +63,7 @@ Declarative rule matrix (opt-in) with context providers:
 
 The v2.0 marketplace-launch milestone calls for an in-game CUI admin panel. To avoid that being one large risky release, the CUI is sliced into four read-only-first then editable minors, one per monthly wipe cycle. Each minor also ships one non-CUI feature so the version has standalone value. v2.0 itself becomes pure non-code launch logistics.
 
-### v1.6.0 - CUI foundation + Status tab (target: 2026-06-04 forced wipe)
+### v1.6.0 (2026-05-16) - CUI foundation + Status tab (shipped)
 
 CUI:
 - CUI helper module: panel open/close, tab system, theme constants, perm gating
@@ -75,7 +75,7 @@ CUI:
 Non-CUI:
 - Per-event-context override. New `PerEventContext` dict under both `EventTracker` and `GlobalEventTriggers`. Admins can map specific event names to specific contexts ("Bradley -> AtBradleyEvent", "Heli -> AtHeliEvent") with `TriggerContext` as fallback. Resolves the limitation called out in docs/integrations/armored-train.md.
 
-### v1.7.0 - Logging + History CUI tabs (target: 2026-07-02 forced wipe)
+### v1.7.0 (2026-05-16) - Logging + History CUI tabs + per-player stats (shipped)
 
 CUI:
 - Logging tab: live-streaming view of recent log lines, color-coded by level (None/Reflects/Scaled/All/Trace)

@@ -84,5 +84,10 @@
   "HelpUi":         "/pdg ui - abrir o painel administrativo CUI no jogo. Requer permissão pvedamageguard.admin.",
   "HelpClose":      "/pdg close - fechar seu painel CUI.",
   "UiOnlyInGame":   "/pdg ui deve ser executado por um jogador no jogo.",
+  "HelpStats":      "/pdg stats [jogador] - mostrar estatísticas de dano. Sem argumento = suas stats. Admin: SteamID ou nome parcial.",
+  "StatsOnlyInGame": "/pdg stats sem argumento deve ser executado por um jogador no jogo.",
+  "StatsNotFound":  "Jogador '{0}' não encontrado.",
+  "StatsNone":      "Ainda sem estatísticas para {0}.",
+  "StatsReport":    "Stats de {0}:\n  Dano em jogadores: {1:F1}   Recebido de jogadores: {2:F1}   Recebido de NPCs: {3:F1}\n  Dano refletido de volta: {4:F1} ({5} reflexos)\n  NPCs mortos: {6}   Mortes PvP: {7}",
   "StatusBlock":    "PVE Damage Guard v{0}\n  Reflexão: {1} ({2:F2}x), BlocPvPSemReflexão: {3}, Companheiros: {4}\n  NPC->Jogador padrão: {5:F2}, NPC->Estrutura padrão: {6:F2}, Armadilhas como PvP: {7}\n  Log: {8} (arquivo={9}), Ceder a TruePVE: {10}, Webhook Discord: {22}\n  Funções: TOD={11}, VictimSubtype={12}, BuildingGrade={13}, PerAttackerStruct={14}, RuleMatrix={15}\n  Hora: {16} ({17}), Eventos: {18} ent / {20} cúp / {21} glob, Problemas config: {19}\n  Comandos: /pdg reload | log | logfile | scale | hour | context | history | test | preset | import | validate | events | webhook | timing | selftest | cache | help"
 }
