@@ -10,13 +10,14 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("PVE Damage Guard", "Gabriel Dungan (DunganSoft Technologies)", "1.0.0")]
+    [Info("PVE Damage Guard", "Gabriel Dungan (DunganSoft Technologies)", "1.0.1")]
     [Description("Future-proof NPC classifier, per-attacker damage scaling, and reflect-as-a-service for PVE Rust servers. Designed as a TruePVE companion.")]
     public class PVEDamageGuard : CovalencePlugin
     {
         [PluginReference] private Plugin TruePVE;
         [PluginReference] private Plugin PVEMode;
         [PluginReference] private Plugin NextGenPVE;
+        [PluginReference] private Plugin DamageControl;
 
         private const string PermBypass = "pvedamageguard.bypass";
         private const string PermAdmin  = "pvedamageguard.admin";
@@ -166,19 +167,23 @@ namespace Oxide.Plugins
                 Puts(_yieldToTruePve
                     ? "TruePVE detected. Yielding allow/block to TruePVE; PVEDamageGuard will only classify, scale, and reflect-on-request."
                     : "TruePVE detected but YieldToTruePVE=false in config. Both plugins will hook OnEntityTakeDamage - verify your intent.");
+            if (DamageControl != null)
+                PrintError("Damage Control (legacy) is loaded alongside PVEDamageGuard. PVEDamageGuard is the replacement for Damage Control - both hook OnEntityTakeDamage and will fight over every hit. Unload Damage Control: oxide.unload DamageControl");
             if (PVEMode != null)    PrintWarning("PVEMode also loaded. Test carefully for conflicts.");
             if (NextGenPVE != null) PrintWarning("NextGenPVE also loaded. Test carefully for conflicts.");
         }
 
         private void OnPluginLoaded(Plugin plugin)
         {
-            if (plugin?.Name == "TruePVE" || plugin?.Name == "PVEMode" || plugin?.Name == "NextGenPVE")
+            var name = plugin?.Name;
+            if (name == "TruePVE" || name == "PVEMode" || name == "NextGenPVE" || name == "DamageControl")
                 DetectCompanions();
         }
 
         private void OnPluginUnloaded(Plugin plugin)
         {
-            if (plugin?.Name == "TruePVE" || plugin?.Name == "PVEMode" || plugin?.Name == "NextGenPVE")
+            var name = plugin?.Name;
+            if (name == "TruePVE" || name == "PVEMode" || name == "NextGenPVE" || name == "DamageControl")
                 DetectCompanions();
         }
 
