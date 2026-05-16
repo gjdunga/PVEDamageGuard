@@ -2,6 +2,29 @@
 
 All notable changes to PVEDamageGuard are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning is [SemVer](https://semver.org/).
 
+## [1.7.1] - 2026-05-16
+
+Bug fix: PvP reflect now also covers Player damaging another player's structure (BuildingBlock / Door / Deployable). The original v1.0 reflect was intended as a "punish griefing attempts" feature but only covered Player vs Player, not Player vs other-player's-base. This release closes that gap.
+
+### Added
+
+- **`ReflectPlayerDamageToForeignStructures`** config flag (default `true`). When enabled and an admin's attacker is NOT authorized on the structure (not owner, not on owner's team, not TC-authorized for BuildingBlocks), damage to BuildingBlock / Door / Deployable victims reflects back to the attacker with the same multiplier used for PvP reflect. Authorized damage (own base, teammate's base, TC-authorized building) is unaffected and lands at vanilla.
+- **`IsAttackerAuthorizedOnStructure`** helper. Checks `OwnerID == attackerId`, team membership via `RelationshipManager.ServerInstance.FindTeam`, and TC authorization for BuildingBlock victims via `GetBuildingPrivilege().authorizedPlayers`. Tolerates API drift via try/catch.
+- **`/pdg test` aimed at a Building or Deployable** now reports your authorization status on that structure ("authorized (vanilla damage)" or "NOT authorized (reflects damage back to you)") plus the structure's OwnerID.
+
+### Fixed
+
+- **Player damaging another player's building no longer leaks through as vanilla damage.** In v1.0 through v1.7.0, the legacy scaling path had no explicit Player->Structure case, so unauthorized structure damage fell through to "other-passthrough" and applied at full vanilla strength. PVE servers running with the default config now reflect that damage as intended.
+- **Rule matrix `allow` action on `RealPlayer -> Building`** is now overridden to reflect (or block) when attacker is unauthorized, unless TruePVE companion mode is active (TruePVE owns the decision in that mode). The default shipped rule matrix had `"RealPlayer -> Building": "allow"` which previously meant "always allow"; now it means "allow if authorized, reflect/block if not".
+- **`ReflectAction` in the rule matrix path now self-reflects** when the victim isn't a player (e.g. a building). Previously these fell through to "reflect-fallback-block".
+
+### Notes
+
+- Monuments are unaffected: monument structures have `OwnerID == 0` and `IsAttackerAuthorizedOnStructure` returns true for unowned entities, so monument loot containers and barrels remain at vanilla damage.
+- NPCs are unaffected: classification flow routes them through their existing branches before the new Player->Structure check.
+- If you specifically want player-vs-foreign-structure damage to land at vanilla (e.g. a competitive build-and-raid server), set `ReflectPlayerDamageToForeignStructures` to `false` in config and reload.
+- Stats tracking unchanged: the reflected damage in this case is self-attributed (you're hitting yourself by attempting to grief), so it appears in your own `DamageReflectedBack` and `ReflectsAgainstMe` counters.
+
 ## [1.7.0] - 2026-05-16
 
 Second CUI slice. Logging and History tabs go functional with live-streaming updates; per-player damage stats backend lands with a `/pdg stats` command and a public API hook. No breaking changes.

@@ -88,5 +88,6 @@
   "StatsNotFound":  "Lusor '{0}' non inventus.",
   "StatsNone":      "Nullae statisticae nondum pro {0}.",
   "StatsReport":    "Statisticae pro {0}:\n  Damnum in lusores: {1:F1}   Acceptum a lusoribus: {2:F1}   Acceptum ab NPC: {3:F1}\n  Damnum reflexum in me: {4:F1} ({5} reflexiones)\n  NPC interfecti: {6}   Mortes PvP: {7}",
+  "TestStructureAuth": "Auctoritas tua super hac structura: {0}. OwnerID: {1}.",
   "StatusBlock":    "PVE Damage Guard v{0}\n  Reflexio: {1} ({2:F2}x), ImpedirePvPSineReflexio: {3}, Socii: {4}\n  NPC->Lusor praedef: {5:F2}, NPC->Aedificium praedef: {6:F2}, Insidiae ut PvP: {7}\n  Diarium: {8} (tabella={9}), Cedere TruePVE: {10}, Webhook Discord: {22}\n  Functiones: TOD={11}, VictimSubtype={12}, BuildingGrade={13}, PerAttackerStruct={14}, RuleMatrix={15}\n  Hora praesens: {16} ({17}), Eventus: {18} ent / {20} cup / {21} glob, Problemata config: {19}\n  Mandata: /pdg reload | log | logfile | scale | hour | context | history | test | preset | import | validate | events | webhook | help"
 }

@@ -89,5 +89,6 @@
   "StatsNotFound":  "未找到玩家 '{0}'。",
   "StatsNone":      "尚未记录 {0} 的统计。",
   "StatsReport":    "{0} 的统计:\n  对玩家造成的伤害: {1:F1}   来自玩家: {2:F1}   来自 NPC: {3:F1}\n  反射回我的伤害: {4:F1} ({5} 次反射)\n  击杀 NPC: {6}   PvP 死亡: {7}",
+  "TestStructureAuth": "您对此建筑的授权: {0}. OwnerID: {1}.",
   "StatusBlock":    "PVE Damage Guard v{0}\n  反射: {1} ({2:F2}x), 无反射时阻挡: {3}, 队友: {4}\n  NPC->玩家 默认: {5:F2}, NPC->结构 默认: {6:F2}, 陷阱视为PvP: {7}\n  日志: {8} (文件={9}), 让步TruePVE: {10}, Discord webhook: {22}\n  功能: TOD={11}, VictimSubtype={12}, BuildingGrade={13}, PerAttackerStruct={14}, RuleMatrix={15}\n  时段: {16} ({17}), 事件: {18} 实体 / {20} 圆顶 / {21} 全局, 配置问题: {19}\n  命令: /pdg reload | log | logfile | scale | hour | context | history | test | preset | import | validate | events | webhook | timing | selftest | cache | help"
 }

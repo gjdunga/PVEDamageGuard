@@ -58,7 +58,7 @@ Other reference docs: [configuration.md](docs/configuration.md), [commands.md](d
 
 ## Status
 
-**v1.7.0** - second CUI slice. Logging and History tabs go live with auto-refresh and filters. Per-player damage stats backend with `/pdg stats` and `API_GetPlayerStats` for plugin integration.
+**v1.7.1** - bug fix: PvP reflect now also fires when a player damages another player's structure (Building / Door / Deployable). Authorized damage (own base, teammates, TC-authorized) is unaffected.
 
 See [CHANGELOG.md](CHANGELOG.md) for version history and [ROADMAP.md](ROADMAP.md) for planned features.
 

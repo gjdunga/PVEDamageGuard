@@ -15,7 +15,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("PVE Damage Guard", "Gabriel Dungan (DunganSoft Technologies)", "1.7.0")]
+    [Info("PVE Damage Guard", "Gabriel Dungan (DunganSoft Technologies)", "1.7.1")]
     [Description("Future-proof NPC classifier, declarative rule matrix, per-attacker/per-victim damage scaling, time-of-day modifiers, ZoneManager / RaidableBases / Convoy / Armored Train context switching, reflect-as-a-service, Discord webhook output, Damage Control config import, preset configurations, config validation, classification cache, hook timing telemetry, Carbon framework support, in-game CUI admin panel with live-streaming Logging and paginated History tabs, per-player damage statistics, and per-event context overrides for PVE Rust servers.")]
     public class PVEDamageGuard : CovalencePlugin
     {
@@ -290,6 +290,9 @@ namespace Oxide.Plugins
 
             [JsonProperty("PvP - Allow teammates (Rust team system) to damage each other")]
             public bool AllowTeammateDamage = false;
+
+            [JsonProperty("PvP - Reflect damage when a player damages ANOTHER player's structure (BuildingBlock / Door / Deployable). Defaults true. Authorized damage (owner, teammates, TC-authorized players) is never reflected.")]
+            public bool ReflectPlayerDamageToForeignStructures = true;
 
             [JsonProperty("NPC -> Player - Per-damage-type scaling. Missing types use 'Default'. Set to 0 to make players immune.")]
             public Dictionary<string, float> NpcToPlayerScaling = new Dictionary<string, float>
@@ -968,6 +971,27 @@ namespace Oxide.Plugins
 
             var action = ResolveRule(context, attackerCat, victimCat, attackerSub, victimSub);
 
+            // v1.7.1 - foreign-structure reflect override.
+            // If the rule resolved to "allow" for Player -> Building/Deployable, and the attacker
+            // is not authorized on that structure, override to reflect (or block if reflect is off).
+            // Skipped when YieldToTruePVE is on; TruePVE owns the decision in that mode.
+            if (_config.ReflectPlayerDamageToForeignStructures
+                && !_yieldToTruePve
+                && action is AllowAction
+                && attackerCat == NpcCategory.RealPlayer
+                && (victimCat == NpcCategory.Building || victimCat == NpcCategory.Deployable))
+            {
+                var attackerPlayer3 = rootAttacker as BasePlayer;
+                if (!IsAttackerAuthorizedOnStructure(attackerPlayer3, entity))
+                {
+                    if (_config.ReflectPvpEnabled)
+                        action = new ReflectAction { Multiplier = _config.ReflectMultiplier };
+                    else if (_config.BlockPvpIfNotReflecting)
+                        action = new BlockAction();
+                    // else: leave action as AllowAction (admin explicitly disabled both)
+                }
+            }
+
             int hour = _todEnabled ? GetCurrentHour() : 0;
             float todGlobal = _todEnabled ? GetTodMult(TodGlobal, hour) : 1f;
 
@@ -990,7 +1014,16 @@ namespace Oxide.Plugins
                     LogHit(LogLevel.Reflects, $"rule[{context}]-reflect", info, entity, attackerCat, victimCat, context, ra.Encode());
                     return true;
                 }
-                // Reflect requested for non-PvP - just block since reflect only makes sense for player attackers
+                // v1.7.1 - Player damaging a non-player victim with a reflect action.
+                // Common case: Player -> Building/Deployable on a PVE server. Self-reflect.
+                if (attackerCat == NpcCategory.RealPlayer)
+                {
+                    var attackerSelf = rootAttacker as BasePlayer;
+                    DoReflect(attackerSelf, attackerSelf, info, ra.Multiplier * todGlobal);
+                    LogHit(LogLevel.Reflects, $"rule[{context}]-reflect-self", info, entity, attackerCat, victimCat, context, ra.Encode());
+                    return true;
+                }
+                // Reflect requested for non-player attacker - block (reflect doesn't make sense for NPCs)
                 LogHit(LogLevel.Scaled, $"rule[{context}]-reflect-fallback-block", info, entity, attackerCat, victimCat, context, "block");
                 return true;
             }
@@ -1269,6 +1302,41 @@ namespace Oxide.Plugins
                     return true;
                 }
                 if (Math.Abs(pvpScalar - 1.0f) > 0.0001f) info.damageTypes.ScaleAll(pvpScalar);
+                return null;
+            }
+
+            // v1.7.1 - Player -> Player-owned Structure (Building or Deployable)
+            // Reflects when attacker is NOT authorized on the structure (not owner,
+            // not on owner's team, not TC-authorized). Does NOT trigger for NPCs,
+            // monuments (OwnerID==0), or barrels (Other category).
+            if (attackerCat == NpcCategory.RealPlayer
+                && (victimCat == NpcCategory.Building || victimCat == NpcCategory.Deployable)
+                && _config.ReflectPlayerDamageToForeignStructures)
+            {
+                var attackerPlayer2 = rootAttacker as BasePlayer;
+                if (IsAttackerAuthorizedOnStructure(attackerPlayer2, entity))
+                {
+                    LogHit(LogLevel.All, "player->own-structure", info, entity, attackerCat, victimCat, null, "allow");
+                    return null;
+                }
+                // Unauthorized - mirror the PvP reflect/block behavior
+                if (_yieldToTruePve)
+                {
+                    LogHit(LogLevel.All, "player->foreign-structure-yielded-truepve", info, entity, attackerCat, victimCat, null, "yield");
+                    return null;
+                }
+                if (_config.ReflectPvpEnabled)
+                {
+                    DoReflect(attackerPlayer2, attackerPlayer2, info, _config.ReflectMultiplier);
+                    LogHit(LogLevel.Reflects, "player->foreign-structure-reflected", info, entity, attackerCat, victimCat, null, $"reflect:{_config.ReflectMultiplier:F2}");
+                    return true;
+                }
+                if (_config.BlockPvpIfNotReflecting)
+                {
+                    LogHit(LogLevel.Scaled, "player->foreign-structure-blocked", info, entity, attackerCat, victimCat, null, "block");
+                    return true;
+                }
+                // Reflect and block both disabled - let it through (rare config)
                 return null;
             }
 
@@ -2603,6 +2671,52 @@ namespace Oxide.Plugins
             return a.currentTeam == b.currentTeam;
         }
 
+        // v1.7.1 - true if the attacker is allowed to damage this structure
+        // (owns it, is on the owner's team, or is TC-authorized on the building).
+        // Used to decide whether to reflect Player->Building/Deployable damage.
+        private bool IsAttackerAuthorizedOnStructure(BasePlayer attacker, BaseCombatEntity victim)
+        {
+            if (attacker == null || victim == null) return false;
+
+            // Unowned structures (monuments, world spawns) are never reflected on damage.
+            // OwnerID == 0 means no player owns this entity; treat as authorized so we
+            // don't trip the reflect on monument crates / barrels / etc.
+            ulong owner = victim.OwnerID;
+            if (owner == 0UL) return true;
+
+            // Direct ownership
+            if (owner == attacker.userID) return true;
+
+            // Team ownership
+            if (attacker.currentTeam != 0UL)
+            {
+                try
+                {
+                    var team = RelationshipManager.ServerInstance?.FindTeam(attacker.currentTeam);
+                    if (team != null && team.members != null && team.members.Contains(owner))
+                        return true;
+                }
+                catch { /* tolerate API drift */ }
+            }
+
+            // TC authorization for BuildingBlock victims
+            if (victim is BuildingBlock bb)
+            {
+                try
+                {
+                    var priv = bb.GetBuildingPrivilege();
+                    if (priv != null && priv.authorizedPlayers != null)
+                    {
+                        foreach (var auth in priv.authorizedPlayers)
+                            if (auth.userid == attacker.userID) return true;
+                    }
+                }
+                catch { /* tolerate API drift */ }
+            }
+
+            return false;
+        }
+
         private void ApplyNpcToPlayerScaling(HitInfo info, float crossMult)
         {
             var map = _config.NpcToPlayerScaling;
@@ -3147,10 +3261,25 @@ namespace Oxide.Plugins
                 lines.Add(string.Format(Lang("TestRuleBuilding", player.Id),
                     _config.NpcToStructureScaling, bgMult,
                     ent is BuildingBlock b2 ? b2.grade.ToString() : "n/a"));
+                // v1.7.1 - show foreign-structure-reflect status
+                if (_config.ReflectPlayerDamageToForeignStructures && ent is BaseCombatEntity bce1)
+                {
+                    bool authed = IsAttackerAuthorizedOnStructure(bp, bce1);
+                    lines.Add(string.Format(Lang("TestStructureAuth", player.Id),
+                        authed ? "authorized (vanilla damage)" : "NOT authorized (reflects damage back to you)",
+                        bce1.OwnerID == 0UL ? "<unowned>" : bce1.OwnerID.ToString()));
+                }
             }
             else if (cat == NpcCategory.Deployable)
             {
                 lines.Add(string.Format(Lang("TestRuleStructure", player.Id), _config.NpcToStructureScaling));
+                if (_config.ReflectPlayerDamageToForeignStructures && ent is BaseCombatEntity bce2)
+                {
+                    bool authed = IsAttackerAuthorizedOnStructure(bp, bce2);
+                    lines.Add(string.Format(Lang("TestStructureAuth", player.Id),
+                        authed ? "authorized (vanilla damage)" : "NOT authorized (reflects damage back to you)",
+                        bce2.OwnerID == 0UL ? "<unowned>" : bce2.OwnerID.ToString()));
+                }
             }
             else if (cat == NpcCategory.OwnedTrap)
             {
@@ -3359,6 +3488,7 @@ namespace Oxide.Plugins
                 ["StatsNotFound"]   = "Player '{0}' not found.",
                 ["StatsNone"]       = "No stats recorded yet for {0}.",
                 ["StatsReport"]     = "Stats for {0}:\n  Damage dealt to players: {1:F1}   Taken from players: {2:F1}   Taken from NPCs: {3:F1}\n  Damage reflected back at me: {4:F1} ({5} reflects)\n  NPCs killed: {6}   PvP deaths: {7}",
+                ["TestStructureAuth"] = "Your authorization on this structure: {0}. OwnerID: {1}.",
                 ["StatusBlock"]     =
                     "PVE Damage Guard v{0}\n" +
                     "  Reflect: {1} ({2:F2}x), BlockPvpIfNotReflecting: {3}, Teammates: {4}\n" +
