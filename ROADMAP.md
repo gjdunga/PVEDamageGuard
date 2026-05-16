@@ -13,12 +13,15 @@ Done in v1.1.0:
 - `/pdg hour` command
 - `API_ClassifySubtype` and `API_GetCurrentHour` public hooks
 
-Deferred to v1.2:
+## v1.2 (shipped 2026-05-16)
 
-- **Rule-matrix configuration mode (opt-in).** Optional `RuleMatrix` config block that lets admins write `(AttackerCategory x VictimCategory x Context) -> Action` rules declaratively, similar to TruePVE rulesets. Defaults remain the current per-attacker scaling model so existing configs are not broken.
-- **Context providers**: ZoneManager integration for per-zone rule overrides; event tracker that listens to `OnEntitySpawned` / `OnEntityKill` for Bradley/Heli/Cargo/Convoy/Armored Train and flips context automatically.
-- **`/pdg test fire <type> <amount>`**: simulate an actual hit (not just classification) to confirm final damage values without needing to swing a weapon.
-- **`/pdg history`**: ring buffer of the last N classified hits, queryable in-game for quick debugging.
+Done in v1.2.0:
+- Declarative rule matrix with contexts, inheritance, and 9-tier precedence lookup
+- Action types: allow, block, reflect:N, scale:N, scale:{type:N,...}
+- ZoneManager integration for per-zone context switching
+- Event tracker for Bradley / Heli / Cargo (extensible)
+- `/pdg context`, `/pdg history [N]`, `/pdg test fire <type> <amount>` commands
+- `API_GetActiveContext`, `API_IsPvpAt`, `API_IsAllowed` public hooks
 
 ## v1.3
 

@@ -155,6 +155,34 @@ When `true` (default) and TruePVE is loaded, PVEDamageGuard yields PvP allow/blo
 ### `"Also write log entries to oxide/logs/PVEDamageGuard/"` (bool)
 Mirrors console log output to a daily-rotated file at `oxide/logs/PVEDamageGuard/damage-YYYY-MM-DD.txt`.
 
+## Rule matrix (v1.2, opt-in)
+
+The `RuleMatrix` config block enables declarative `(Attacker -> Victim) -> Action` rules with context switching. See [rule-matrix.md](rule-matrix.md) for the dedicated guide. Top-level shape:
+
+```jsonc
+"RuleMatrix": {
+  "Enabled": false,
+  "DefaultContext": "Default",
+  "Contexts": {
+    "Default": {
+      "Description": "Normal server state",
+      "Inherits": null,
+      "Rules": {
+        "RealPlayer -> RealPlayer": "reflect:1.0",
+        "HumanNpc -> RealPlayer":   "scale:{Bullet:0.25,Default:0.5}"
+      }
+    }
+  },
+  "ContextProviders": {
+    "ZoneManager":  { "Enabled": true, "ZoneFlagToContext": { "pvp": "AtPvpEvent" } },
+    "EventTracker": { "Enabled": true, "TriggerContext": "AtPvpEvent",
+                      "Events": ["BradleyAPC","BaseHelicopter","CargoShip"], "RadiusMeters": 200 }
+  }
+}
+```
+
+`Enabled: false` (default) keeps the v1.1 case-based scaling path. Set to `true` to switch to matrix-based resolution. Existing config fields (PvP reflect, NPC scaling, etc.) still apply as v1.1 modifiers compose on top of `scale` rule actions.
+
 ## Migrating from Damage Control
 
 Mapping of Damage Control config blocks to PVEDamageGuard equivalents:

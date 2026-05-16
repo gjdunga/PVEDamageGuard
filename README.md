@@ -11,16 +11,20 @@ PVEDamageGuard classifies NPCs by **base type** (`BasePlayer.IsNpc`, `BaseNpc`, 
 ## Features
 
 - **Type-based NPC classifier** that survives every Facepunch update without code changes
+- **Optional declarative rule matrix** with contexts and inheritance: write `(Attacker -> Victim) -> Action` rules and switch contexts automatically based on ZoneManager zones or Bradley/Heli/Cargo event proximity
 - **Per-attacker, per-damage-type NPC->Player scaling** (NPC bullets at 0.25x, slash at 0.5x, etc.)
 - **Per-attacker NPC->Structure scaling** with subtype overrides (`PatrolHelicopter: 1.0` lets helis raid at full damage even when other NPCs are blocked - replaces Damage Control's `Heli_bypass`)
 - **Per-victim subtype scaling** (Bear, Wolf, Minicopter, Barrel, etc.) - per-damage-type, stacks on top of attacker rules
-- **Building grade multipliers** (Twigs/Wood/Stone/Metal/TopTier) - applies on top of structure scaling
-- **Time-of-day modifiers** for Global / PvP / NpcToPlayer / NpcToStructure - 24-hour arrays, configurable Game or Real time source
+- **Building grade multipliers** (Twigs/Wood/Stone/Metal/TopTier)
+- **Time-of-day modifiers** for Global / PvP / NpcToPlayer / NpcToStructure - 24-hour arrays, Game or Real time source
 - **PvP reflect** with re-entrancy guard, configurable multiplier, optional team carve-out
-- **`/pdg test`** - aim at any entity in game and see classification, subtype, current hour, and every modifier layer that would apply
+- **`/pdg test`** - aim at any entity, see classification, subtype, context, current hour, and every modifier layer that applies
+- **`/pdg test fire <type> <amount>`** - dry-run a synthetic hit through the full modifier stack and see the final damage without actually hurting anything
+- **`/pdg history [N]`** - inspect the last N classified hits with timestamps, classifications, contexts, and actions
+- **`/pdg context`** - show the active rule-matrix context at your current position
 - **`/pdg hour`** - current hour and TOD multipliers
 - **Five-tier logging** (None / Reflects / Scaled / All / Trace) with optional structured file output to `oxide/logs/PVEDamageGuard/`
-- **Public API** for TruePVE, RaidableBases, PunishAttacker, NextGenPVE and other plugins to call
+- **Public API** including `API_Classify`, `API_ClassifySubtype`, `API_IsNpcAttacker`, `API_ReflectDamage`, `API_GetActiveContext`, `API_IsPvpAt`, `API_IsAllowed` for TruePVE / RaidableBases / PunishAttacker / NextGenPVE and other plugins
 - **TruePVE companion mode** - auto-detects TruePVE on load and yields allow/block decisions to it, only applying scaling/reflect on top
 - **Permission split** - `pvedamageguard.bypass` (damage immunity for testing) and `pvedamageguard.admin` (chat command access) are separate
 
@@ -42,7 +46,7 @@ See [docs/installation.md](docs/installation.md) for full setup, [docs/configura
 
 ## Status
 
-**v1.1.0** - parity with the four legacy Damage Control features (time-of-day, per-victim subtype, building grade, per-attacker structure).
+**v1.2.0** - optional declarative rule matrix with ZoneManager and event-aware context switching, plus dry-run hit simulation and a history ring buffer for live diagnostics.
 
 See [CHANGELOG.md](CHANGELOG.md) for version history and [ROADMAP.md](ROADMAP.md) for planned features.
 

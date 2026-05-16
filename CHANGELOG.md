@@ -2,6 +2,35 @@
 
 All notable changes to PVEDamageGuard are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning is [SemVer](https://semver.org/).
 
+## [1.2.0] - 2026-05-16
+
+Architectural addition: optional declarative rule matrix as an alternative to the case-based scaling logic. Context providers integrate with ZoneManager and a built-in event tracker so rules switch automatically when players enter PvP zones or get within range of Bradley/Heli/Cargo events. Adds dry-run damage simulation and a history ring buffer for live diagnostics. Fully backward compatible: existing v1.0.x and v1.1.x configs continue to use the legacy scaling path because `RuleMatrix.Enabled` defaults to `false`.
+
+### Added
+
+- **Declarative rule matrix.** New `RuleMatrix` config block defines named `Contexts` containing `(AttackerCategory|AttackerSubtype) -> (VictimCategory|VictimSubtype) -> Action` rules. Actions: `allow`, `block`, `reflect:<mult>`, `scale:<mult>`, `scale:{Bullet:0.25,Default:0.5}`. Contexts support `Inherits` to compose; lookup precedence walks specific-to-general (9 candidate patterns including `*` wildcards). Default ships with `Default`, `AtPvpEvent`, and `InRaidableBaseDome` contexts.
+- **ZoneManager integration.** Optional context provider; when ZoneManager is loaded and `RuleMatrix.ContextProviders.ZoneManager.Enabled=true`, zone flags (e.g. `pvp`) map to context names so per-zone rules apply automatically.
+- **Built-in event tracker.** `OnEntitySpawned`/`OnEntityKill` track BradleyAPC, BaseHelicopter, and CargoShip; victim positions within `RadiusMeters` of any tracked event flip context to `TriggerContext` (default `AtPvpEvent`). Configurable event list, trigger context, and radius.
+- **`/pdg context`** command: reports the currently active context at the player's position and the count of tracked events.
+- **`/pdg history [N]`** command: shows the last N (up to 100) classified hits with timestamp, classification, context, action, and damage. Ring buffer is filled regardless of console log level (the history is a separate diagnostic).
+- **`/pdg test fire <DamageType> <amount>`**: dry-runs a synthetic hit through the full modifier stack (rule matrix path if enabled, legacy scaling path otherwise) and reports the final damage that would land - without actually hurting anything.
+- **Public API additions**:
+  - `API_GetActiveContext(Vector3 pos)` returns the active context name at a position (or null if rule matrix is disabled).
+  - `API_IsPvpAt(Vector3 pos)` returns true if PvP is allowed at that position under current rules.
+  - `API_IsAllowed(BaseEntity attacker, BaseEntity victim)` returns true unless the rule matrix would block this pairing. Lets other plugins (RaidableBases, Convoy, Backpacks-on-death, etc.) query PVEDamageGuard cleanly instead of duplicating PvP detection.
+
+### Changed
+
+- `OnEntityTakeDamage` now dispatches between two code paths based on `_ruleMatrixEnabled`. Legacy scaling path (`HandleViaScaling`) is the v1.1 code unchanged. Rule matrix path (`HandleViaRuleMatrix`) resolves context, looks up the rule, applies the action, and composes v1.1 modifiers (TOD, victim subtype, building grade) on top of `scale` and `reflect` actions.
+- `LogHit` now also appends to a 100-entry ring buffer regardless of console log level so `/pdg history` always has recent data to show.
+- Status block (`/pdg`) reports rule matrix enabled flag and active tracked event count alongside the existing feature flags.
+
+### Notes
+
+- No breaking changes. `RuleMatrix.Enabled` defaults to `false` and existing v1.1.x configs load unchanged.
+- When rule matrix is enabled, the v1.1 PvP reflect / block / yield-to-TruePVE settings still apply as overrides for the PvP-vs-PvP combination (before the rule matrix is consulted) so the most common admin tweak does not require touching the matrix.
+- The shipped default rule matrix reproduces v1.1 behavior approximately. Admins who want to flip on the matrix can do so with no other config changes; the only effective shift is that rules become explicit and inspectable via `/pdg test`.
+
 ## [1.1.0] - 2026-05-16
 
 Restores four features that existed in the legacy MSpeedie/Wulf Damage Control plugin and were intentionally deferred from PVEDamageGuard v1.0. All four are additive and default to no-op behavior, so existing v1.0.x configs upgrade in place without behavior change until the admin chooses to use the new fields.

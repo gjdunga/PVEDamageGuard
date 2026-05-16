@@ -88,6 +88,42 @@ int hour = (int)(PVEDamageGuard?.Call("API_GetCurrentHour") ?? 0);
 
 Use this for plugins that want to synchronize with PVEDamageGuard's TOD schedule (e.g. a Discord plugin announcing "PvP hours start in 30 minutes" using the same source of truth).
 
+### API_GetActiveContext(Vector3 pos) -> string (v1.2.0)
+
+Returns the active rule-matrix context name at the given position, or `null` if the rule matrix is disabled. Walks the configured ContextProviders in order (ZoneManager first, then EventTracker proximity).
+
+```csharp
+var ctx = (string)PVEDamageGuard?.Call("API_GetActiveContext", player.transform.position);
+if (ctx == "AtPvpEvent")
+{
+    // a Bradley/Heli/Cargo event is active near this player
+}
+```
+
+### API_IsPvpAt(Vector3 pos) -> bool (v1.2.0)
+
+Returns `true` if PvP is allowed at the given position under the currently active context's rules. Performs a `RealPlayer -> RealPlayer` rule lookup at `pos`.
+
+When the rule matrix is disabled, returns `true` only if PvP is configured to neither reflect nor block (the rare "vanilla PvP" config).
+
+```csharp
+var pvpHere = (bool)(PVEDamageGuard?.Call("API_IsPvpAt", player.transform.position) ?? false);
+if (pvpHere) ShowPvpIndicator(player);
+```
+
+This is the integration point for RaidableBases, Convoy, Backpacks-on-death, and any plugin that needs to know whether PvP applies at a location.
+
+### API_IsAllowed(BaseEntity attacker, BaseEntity victim) -> bool (v1.2.0)
+
+Returns `true` unless the rule matrix would `block` this attacker-victim pairing in the victim's current context. Useful for plugins that want to short-circuit their own behavior based on the centralized PVE rules.
+
+```csharp
+var allowed = (bool)(PVEDamageGuard?.Call("API_IsAllowed", attackerEntity, victimEntity) ?? true);
+if (!allowed) return; // PVE rules forbid this hit; skip our own scoring logic
+```
+
+When the rule matrix is disabled, returns `true` (defer to the legacy scaling path's own logic).
+
 ## Public types
 
 ### NpcCategory enum
