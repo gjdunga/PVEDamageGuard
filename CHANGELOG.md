@@ -2,6 +2,31 @@
 
 All notable changes to PVEDamageGuard are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning is [SemVer](https://semver.org/).
 
+## [2.0.0] - 2026-05-16
+
+**Marketplace-launch milestone.** Same plugin binary as v1.9.0; the major version bump marks the Codefling listing going live and a stable API/config contract for the v2.x lifetime. No code changes vs v1.9.0; the diff is purely launch assets and metadata.
+
+### Added
+
+- **MARKETPLACE.md** at repo root - complete Codefling listing copy, ready to paste. Title, tagline, long description, pricing rationale, screenshot section, video section, pre-submission checklist, post-launch follow-up.
+- **SUPPORT.md** at repo root - support tier definitions (free / Codefling-paid), response-time SLOs (< 48h critical, < 7d standard bugs, monthly feature triage), issue templates, contribution channels, what's in scope vs not, maintainer info.
+- **docs/comparison.md** - feature comparison vs Damage Control, vs TruePVE alone, vs the canonical free stack (TruePVE+DynamicPVP+ReflectDamage), vs Codefling paid alternatives (SimplePVE, War Mode, Real PvE, Customizable Protection, PunishAttacker). Honest column for each.
+- **docs/marketing/screenshots.md** - capture guide for the 8 launch screenshots (Status / Logging / History / Rules / Rules-edit / Scaling / /pdg test / damage comparison). Per-shot setup, what to crop, file naming convention.
+- **docs/marketing/feature-tour.md** - script for the 60-90 second marketing GIF. Scene-by-scene timing, text overlays, ffmpeg conversion one-liner, pre-upload checklist.
+
+### Changed
+
+- Version bumped 1.9.0 -> 2.0.0 in `[Info]` attribute, `manifest.json`, `.umod.yaml`.
+- README status line marks the v2.x stable era.
+- ROADMAP marks v2.0 shipped; post-2.0 plans clarified (v2.1 leaderboards, v2.2+ TBD).
+
+### Notes
+
+- **No functional code changes vs v1.9.0.** If you upgrade from v1.9.0, no behavior changes; you can also stay on v1.9.0 with no missed features.
+- **API stability commitment**: every public `API_*` hook is stable across the v2.x lifetime. Breaking changes require v3.0 and one v2.x deprecation cycle of warnings.
+- **Battle-tested promise**: v1.5 through v1.9 spans the May 2026 through October 2026 wipe cycles. Active in production on FACEWAN throughout. Any wipe-day breakage was patched within 48 hours per the maintenance SLO.
+- **Codefling listing**: target submission window aligned with v2.0.0 release. Free uMod listing and free GitHub release remain available alongside.
+
 ## [1.9.0] - 2026-05-16
 
 Fourth and final pre-launch CUI slice. Scaling tab and Rules tab become editable. Backpacks integration via a new public hook. The CUI is now feature-complete for v2.0's Codefling launch.

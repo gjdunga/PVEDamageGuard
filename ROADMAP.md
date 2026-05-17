@@ -106,15 +106,15 @@ CUI:
 Non-CUI:
 - Backpacks-on-death integration via `[PluginReference]`. Detect popular Backpacks plugins (Backpacks by WhiteThunder, or Backpacks 4 by Whispers88) and respect "no drop in PVE zone" semantics. PVE servers commonly run one of these and want backpacks preserved through reflect-induced kills.
 
-### v2.0.0 - Codefling launch (target: 2026-10-01)
+### v2.0.0 (2026-05-16) - Codefling launch (shipped)
 
-Pure non-code. Pushed one month from the original September target so v1.6-v1.9 each get a full wipe cycle of real-world CUI use before the listing goes live.
-
-- Codefling listing at $15-20 one-time, unlimited-server
-- Free uMod listing remains; Codefling adds curated downloads + priority support + Discord channel
-- Five-wipe battle-tested promise (May v1.5 through September v1.9) verified
-- Marketing assets: 5-8 screenshots, 60-90s feature-tour GIF, comparison spreadsheet vs DamageControl and TruePVE+DynamicPVP+ReflectDamage stack
-- Support tier setup: Discord support channel, response-time SLO documented
+- MARKETPLACE.md ready-to-paste listing copy at repo root
+- SUPPORT.md with response-time SLOs, issue templates, support channel definitions
+- docs/comparison.md vs Damage Control, TruePVE-stack, Codefling paid alternatives
+- docs/marketing/screenshots.md - 8-shot capture guide
+- docs/marketing/feature-tour.md - 60-90 second GIF script
+- API and config contract stable for entire v2.x lifetime
+- Free uMod listing and free GitHub release remain alongside paid Codefling listing
 
 ## Why slice CUI across four minors
 

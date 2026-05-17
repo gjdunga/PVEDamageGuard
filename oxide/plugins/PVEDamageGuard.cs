@@ -15,7 +15,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("PVE Damage Guard", "Gabriel Dungan (DunganSoft Technologies)", "1.9.0")]
+    [Info("PVE Damage Guard", "Gabriel Dungan (DunganSoft Technologies)", "2.0.0")]
     [Description("Future-proof NPC classifier, declarative rule matrix, per-attacker/per-victim damage scaling, time-of-day modifiers, ZoneManager / RaidableBases / Convoy / Armored Train context switching, reflect-as-a-service, Discord webhook output, Damage Control config import, preset configurations, config validation, classification cache, hook timing telemetry, Carbon framework support, in-game CUI admin panel with live-streaming Logging and paginated History tabs, per-player damage statistics, and per-event context overrides for PVE Rust servers.")]
     public class PVEDamageGuard : CovalencePlugin
     {

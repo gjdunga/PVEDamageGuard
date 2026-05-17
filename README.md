@@ -58,7 +58,9 @@ Other reference docs: [configuration.md](docs/configuration.md), [commands.md](d
 
 ## Status
 
-**v1.9.0** - final pre-launch CUI slice. Scaling tab and Rules tab edit-mode go live. Backpacks integration via `API_IsPveDeath`. CUI is now feature-complete for v2.0's Codefling launch.
+**v2.0.0 — stable, marketplace launch.** The plugin is feature-complete and live on the Codefling marketplace alongside the free uMod listing. Same code under both. Same-week patches every monthly forced wipe. API and config contract stable for the entire v2.x lifetime.
+
+See [INSTALL.md](INSTALL.md) for setup, [SUPPORT.md](SUPPORT.md) for help channels, [docs/comparison.md](docs/comparison.md) for how it stacks up vs alternatives.
 
 See [CHANGELOG.md](CHANGELOG.md) for version history and [ROADMAP.md](ROADMAP.md) for planned features.
 
