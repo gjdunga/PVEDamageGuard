@@ -2,7 +2,7 @@
 
 This is the comprehensive install + configure document for PVEDamageGuard. If you just want the three-command quick install, jump to [Quick start](#quick-start). If you're migrating from Damage Control, jump to [Migrating from Damage Control](#migrating-from-damage-control). Otherwise read top to bottom.
 
-For specific topics after install: [Configuration reference](docs/configuration.md), [Rule matrix guide](docs/rule-matrix.md), [Commands](docs/commands.md), [API reference](docs/api.md), [Performance](docs/performance.md), [Carbon support](docs/carbon.md), [CUI panel](docs/cui.md), and per-plugin integration recipes in [docs/integrations/](docs/integrations/).
+For specific topics after install: [Configuration reference](docs/configuration.md), [Rule matrix guide](docs/rule-matrix.md), [Chat commands](docs/commands.md), [Pterodactyl / RCON / console commands](docs/console-reference.md), [API reference](docs/api.md), [Performance](docs/performance.md), [Carbon support](docs/carbon.md), [CUI panel](docs/cui.md), and per-plugin integration recipes in [docs/integrations/](docs/integrations/).
 
 ---
 

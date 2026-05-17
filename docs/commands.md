@@ -1,6 +1,8 @@
 # Commands
 
-All commands are subcommands of `/pdg`. Server console can run them as `pdg <args>` (no slash).
+This page documents the in-game chat commands (prefixed with `/`). For Pterodactyl / RCON / server console use (no slash), see [console-reference.md](console-reference.md) — that page lists which commands work without an in-game player and which don't.
+
+All commands are subcommands of `/pdg`. Server console runs them as `pdg <args>` (no slash).
 
 Access requires either:
 - the `pvedamageguard.admin` permission, or

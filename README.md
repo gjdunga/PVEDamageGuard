@@ -47,7 +47,7 @@ oxide.grant user <your-steamid> pvedamageguard.admin
 
 **Full setup: [INSTALL.md](INSTALL.md)** — comprehensive guide covering prerequisites, detailed install, first-time configuration, preset selection, Damage Control migration, integrations (TruePVE / ZoneManager / RaidableBases / Convoy / Armored Train / Discord), common admin tasks, updating, troubleshooting, and uninstalling.
 
-Other reference docs: [configuration.md](docs/configuration.md), [commands.md](docs/commands.md), [api.md](docs/api.md), [rule-matrix.md](docs/rule-matrix.md), [performance.md](docs/performance.md), [carbon.md](docs/carbon.md), [cui.md](docs/cui.md).
+Other reference docs: [configuration.md](docs/configuration.md), [commands.md](docs/commands.md) (chat commands), [console-reference.md](docs/console-reference.md) (Pterodactyl/RCON/console commands), [api.md](docs/api.md), [rule-matrix.md](docs/rule-matrix.md), [performance.md](docs/performance.md), [carbon.md](docs/carbon.md), [cui.md](docs/cui.md).
 
 ## Compatibility
 
