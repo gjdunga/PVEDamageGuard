@@ -15,7 +15,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("PVE Damage Guard", "Gabriel Dungan (DunganSoft Technologies)", "2.0.0")]
+    [Info("PVE Damage Guard", "Gabriel Dungan (DunganSoft Technologies)", "2.0.1")]
     [Description("Future-proof NPC classifier, declarative rule matrix, per-attacker/per-victim damage scaling, time-of-day modifiers, ZoneManager / RaidableBases / Convoy / Armored Train context switching, reflect-as-a-service, Discord webhook output, Damage Control config import, preset configurations, config validation, classification cache, hook timing telemetry, Carbon framework support, in-game CUI admin panel with live-streaming Logging and paginated History tabs, per-player damage statistics, and per-event context overrides for PVE Rust servers.")]
     public class PVEDamageGuard : CovalencePlugin
     {
@@ -70,6 +70,13 @@ namespace Oxide.Plugins
         // Keyed by net.ID.Value; entries cleared on OnEntityKill.
         private readonly Dictionary<ulong, CachedClassification> _classifyCache = new Dictionary<ulong, CachedClassification>();
         private const int CacheMaxEntries = 10000;
+
+        // v2.0.1 - per-Type AI-brain detection cache. Keyed by entity .NET Type because a
+        // type's component layout is fixed for the lifetime of the process. Used by the
+        // ClassifyEntity fallback that catches HumanNPCNew / Frontier / Tutorial NPCs and
+        // any future humanoid AI whose base class isn't BasePlayer/NPCPlayer/BaseNpc.
+        private readonly Dictionary<Type, bool> _aiTypeCache = new Dictionary<Type, bool>();
+        private int _aiFallbackHits; // diagnostic counter surfaced in /pdg selftest
 
         // Hook timing telemetry (v1.5): rolling buffer of last N OnEntityTakeDamage timings in microseconds.
         private const int TimingBufferSize = 1000;
@@ -1043,7 +1050,11 @@ namespace Oxide.Plugins
                 return null;
             }
 
-            if (info.Initiator == null || rootAttacker == null || IsEnvironmental(info))
+            // v2.0.1 - removed the `info.Initiator == null` short-circuit. ResolveRootAttacker
+            // now falls back to info.Weapon / WeaponPrefab when Initiator is unset, which is
+            // how some new HTN-driven AI hits arrive. IsEnvironmental + rootAttacker==null
+            // still catches fall/cold/radiation/etc. so we don't accidentally scale env damage.
+            if (rootAttacker == null || IsEnvironmental(info))
             {
                 LogHit(LogLevel.All, "env-passthrough", info, entity, attackerCat, victimCat, null, "passthrough");
                 return null;
@@ -1535,7 +1546,9 @@ namespace Oxide.Plugins
 
             NpcCategory result;
             if (entity is BasePlayer bp)
-                result = bp.IsNpc ? NpcCategory.HumanNpc : NpcCategory.RealPlayer;
+                result = (bp.IsNpc || HasAiBrainCached(bp))
+                    ? NpcCategory.HumanNpc
+                    : NpcCategory.RealPlayer;
             else if (entity is NPCPlayer)      result = NpcCategory.HumanNpc;
             else if (entity is BaseNpc)        result = NpcCategory.AnimalNpc;
             else if (entity is BaseHelicopter) result = NpcCategory.VehicleNpc;
@@ -1545,9 +1558,85 @@ namespace Oxide.Plugins
             else if (entity is DecayEntity && entity.OwnerID != 0UL) result = NpcCategory.Deployable;
             else if (entity is BaseCombatEntity bce && bce.OwnerID != 0UL && bce.OwnerID.IsSteamId())
                 result = NpcCategory.OwnedTrap;
+            // v2.0.1 - AI-brain component fallback. Catches HumanNPCNew / Frontier / Tutorial
+            // NPCs and any future humanoid AI whose base class isn't one of the known ones.
+            // BasePlayer/NPCPlayer/BaseNpc/BaseHelicopter/BradleyAPC and structure checks above
+            // run first; only ambiguous entities reach here, so the fallback won't shadow
+            // real players or world objects.
+            else if (HasAiBrainCached(entity)) { result = NpcCategory.HumanNpc; _aiFallbackHits++; }
             else result = NpcCategory.Other;
 
             if (useCache) CachePut(cacheKey, result, null, hasSubtype: false);
+            return result;
+        }
+
+        // v2.0.1 - per-Type AI-brain detection, used as a ClassifyEntity fallback.
+        // Looks for any Unity component on the entity's gameObject whose type name
+        // matches Rust's AI-brain naming convention (BaseAIBrain, ScientistBrain,
+        // HumanBrain, HTNPlayer, HTNDomain, IHTNAgent implementations, etc.). The
+        // result is keyed by .NET Type and cached for the lifetime of the process
+        // because a type's component layout is fixed.
+        //
+        // This is deliberately a name-based scan rather than a typed reference: it
+        // keeps the plugin from breaking the moment Facepunch renames AI types, and
+        // it catches NPC variants we've never seen before (HumanNPCNew, FrontierNPC,
+        // TutorialNPC, future). Real players are filtered out by the BasePlayer.IsNpc
+        // check upstream; this only adds NPCs, never removes them.
+        private bool HasAiBrainCached(BaseEntity entity)
+        {
+            if (entity == null) return false;
+            var t = entity.GetType();
+            if (_aiTypeCache.TryGetValue(t, out var cached)) return cached;
+
+            bool result = false;
+            try
+            {
+                var go = entity.gameObject;
+                if (go != null)
+                {
+                    var comps = go.GetComponents<UnityEngine.Component>();
+                    for (int i = 0; i < comps.Length; i++)
+                    {
+                        var c = comps[i];
+                        if (c == null) continue;
+                        var n = c.GetType().Name;
+                        if (n == "BaseAIBrain"
+                            || n.EndsWith("AIBrain", StringComparison.Ordinal)
+                            || n.EndsWith("AIAgent",  StringComparison.Ordinal)
+                            || n.StartsWith("HTN",     StringComparison.Ordinal)
+                            || (n.EndsWith("Brain",   StringComparison.Ordinal)
+                                && n != "Brain"
+                                && n != "BasePlayerBrain")) // defensive: avoid hypothetical false-positives
+                        {
+                            result = true;
+                            break;
+                        }
+                    }
+                }
+                if (!result)
+                {
+                    // Type-name backstop. Only fires when the .NET type name itself looks
+                    // unmistakably like a Rust NPC class. Conservative on purpose: we want
+                    // false negatives (the entity falls through to "Other", same as today)
+                    // far more than false positives (something benign reclassified as NPC).
+                    var tn = t.Name;
+                    if (tn.EndsWith("NPC", StringComparison.Ordinal)
+                        || tn.EndsWith("Npc", StringComparison.Ordinal)
+                        || tn.IndexOf("HumanNPC",     StringComparison.OrdinalIgnoreCase) >= 0
+                        || tn.IndexOf("TutorialNPC",  StringComparison.OrdinalIgnoreCase) >= 0
+                        || tn.IndexOf("FrontierNPC",  StringComparison.OrdinalIgnoreCase) >= 0
+                        || tn.IndexOf("ScientistNPC", StringComparison.OrdinalIgnoreCase) >= 0
+                        || tn.IndexOf("VendorGuard",  StringComparison.OrdinalIgnoreCase) >= 0)
+                        result = true;
+                }
+            }
+            catch
+            {
+                // entity.gameObject can throw if the entity is mid-destroy; treat as "not AI"
+                result = false;
+            }
+
+            _aiTypeCache[t] = result;
             return result;
         }
 
@@ -1636,15 +1725,57 @@ namespace Oxide.Plugins
             if (prefab.Contains("sam_site") || prefab.Contains("sam_static")) return "SamSite";
             if (entity is LootContainer && prefab.Contains("barrel")) return "Barrel";
 
-            if (entity is NPCPlayer || (entity is BasePlayer bp2 && bp2.IsNpc))
+            // v2.0.1 - include the AI-brain fallback so HumanNPCNew / Frontier / Tutorial
+            // variants without the IsNpc=true flag still get a subtype. Then resolve the
+            // subtype against prefab-name patterns we know about, so rule-matrix and
+            // per-attacker scaling can target them by name (e.g. "TutorialNPC -> RealPlayer").
+            if (entity is NPCPlayer
+                || (entity is BasePlayer bp2 && bp2.IsNpc)
+                || HasAiBrainCached(entity))
+            {
+                if (prefab.IndexOf("tutorial",       StringComparison.OrdinalIgnoreCase) >= 0) return "TutorialNPC";
+                if (prefab.IndexOf("frontier",       StringComparison.OrdinalIgnoreCase) >= 0) return "FrontierNPC";
+                if (prefab.IndexOf("vendor",         StringComparison.OrdinalIgnoreCase) >= 0) return "TravellingVendorGuard";
+                if (prefab.IndexOf("humannpc",       StringComparison.OrdinalIgnoreCase) >= 0) return "HumanNPCNew";
+                if (prefab.IndexOf("heavyscientist", StringComparison.OrdinalIgnoreCase) >= 0) return "HeavyScientist";
                 return "Scientist";
+            }
 
             return null;
         }
 
         public BaseEntity ResolveRootAttacker(HitInfo info)
         {
-            var init = info?.Initiator;
+            if (info == null) return null;
+
+            // v2.0.1 - if Initiator is unset (some HTN AI hits arrive with only Weapon set),
+            // fall back to the weapon's owner / weapon entity's parent chain before giving up.
+            var init = info.Initiator;
+            if (init == null)
+            {
+                BaseEntity wOwner = null;
+                try { wOwner = info.Weapon?.GetOwnerPlayer(); } catch { /* tolerate API drift */ }
+                if (wOwner == null)
+                {
+                    try { wOwner = info.WeaponPrefab?.GetParentEntity(); } catch { /* same */ }
+                }
+                if (wOwner == null)
+                {
+                    try { wOwner = (info.Weapon as BaseEntity)?.creatorEntity; } catch { /* same */ }
+                }
+                if (wOwner == null) return null;
+                init = wOwner;
+            }
+
+            return ResolveAttackerEntity(init);
+        }
+
+        // v2.0.1 - shared resolution: returns the entity we want to classify as the
+        // root attacker. Walks creatorEntity and the parent chain, and accepts any
+        // entity our AI-brain detector recognises so HumanNPCNew / Frontier / Tutorial
+        // NPCs are returned instead of their projectile / weapon entity.
+        private BaseEntity ResolveAttackerEntity(BaseEntity init)
+        {
             if (init == null) return null;
             if (init is BasePlayer)     return init;
             if (init is NPCPlayer)      return init;
@@ -1659,8 +1790,21 @@ namespace Oxide.Plugins
             var creator = init.creatorEntity;
             if (creator != null
                 && (creator is BasePlayer || creator is NPCPlayer || creator is BaseNpc
-                    || creator is BaseHelicopter || creator is BradleyAPC))
+                    || creator is BaseHelicopter || creator is BradleyAPC
+                    || HasAiBrainCached(creator)))
                 return creator;
+            // Walk the parent chain - HumanNPCNew weapons are commonly parented to the NPC.
+            try
+            {
+                var parent = init.GetParentEntity();
+                if (parent != null
+                    && (parent is BasePlayer || parent is NPCPlayer || parent is BaseNpc
+                        || parent is BaseHelicopter || parent is BradleyAPC
+                        || HasAiBrainCached(parent)))
+                    return parent;
+            }
+            catch { /* tolerate API drift */ }
+            // Last resort: if init itself looks like AI, classifier will catch it via the same path.
             return init;
         }
 
@@ -1854,6 +1998,34 @@ namespace Oxide.Plugins
             checks.Add(("typeof(Door)",           typeof(Door)           != null, "doors"));
             checks.Add(("typeof(DecayEntity)",    typeof(DecayEntity)    != null, "deployables"));
             checks.Add(("typeof(LootContainer)",  typeof(LootContainer)  != null, "barrels"));
+
+            // v2.0.1 - exercise the AI-brain fallback against a known live BaseAIBrain
+            // host (a spawned BaseNpc / NPCPlayer). Confirms the component-name scan
+            // would actually match in this Rust build. Soft-fail: it's normal for no
+            // NPC to be spawned during load.
+            bool aiProbeAttempted = false;
+            bool aiProbeMatched = false;
+            try
+            {
+                foreach (var be in BaseNetworkable.serverEntities)
+                {
+                    var probe = be as BaseEntity;
+                    if (probe == null) continue;
+                    if (probe is BaseNpc || probe is NPCPlayer)
+                    {
+                        aiProbeAttempted = true;
+                        if (HasAiBrainCached(probe)) { aiProbeMatched = true; break; }
+                    }
+                }
+            }
+            catch { /* tolerate iteration errors */ }
+            checks.Add(("AI-brain detector",
+                !aiProbeAttempted || aiProbeMatched,
+                aiProbeAttempted
+                    ? (aiProbeMatched
+                        ? "matched a known NPC on load"
+                        : "FAILED to match a spawned NPC's brain component - new-AI fallback won't fire")
+                    : "no NPCs spawned yet to probe (will be re-checked at runtime)"));
 
             // DamageType enum sanity
             checks.Add(("DamageType.LAST present",
@@ -3735,7 +3907,8 @@ namespace Oxide.Plugins
         private void CmdSelfTest(IPlayer player)
         {
             RunSelfTest();
-            player.Reply(_selfTestSummary + (_selfTestPassed ? " (passed)" : " (FAILED - see console)"));
+            var aiInfo = $" | AI-fallback hits since load: {_aiFallbackHits} | AI types cached: {_aiTypeCache.Count}";
+            player.Reply(_selfTestSummary + aiInfo + (_selfTestPassed ? " (passed)" : " (FAILED - see console)"));
         }
 
         private void CmdUi(IPlayer player)
@@ -3838,8 +4011,9 @@ namespace Oxide.Plugins
         {
             if (args.Length >= 2 && args[1].Equals("clear", StringComparison.OrdinalIgnoreCase))
             {
-                int before = _classifyCache.Count;
+                int before = _classifyCache.Count + _aiTypeCache.Count;
                 _classifyCache.Clear();
+                _aiTypeCache.Clear(); // v2.0.1 - also flush the AI-type fallback cache
                 player.Reply(string.Format(Lang("CacheCleared", player.Id), before));
                 return;
             }
