@@ -2,29 +2,29 @@
 
 All notable changes to PVEDamageGuard are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning is [SemVer](https://semver.org/).
 
-## [2.0.1] - 2026-05-18
+## [2.0.1] - 2026-05-16
 
-Bug-fix release. The strict five-type classifier in v2.0.0 (`BasePlayer` / `NPCPlayer` / `BaseNpc` / `BaseHelicopter` / `BradleyAPC`) misses newer humanoid AI whose base class doesn't match — HumanNPCNew, Frontier NPCs, Tutorial NPCs, and other variants Facepunch has added since the v2.0 wipe cycle. Symptom: damage from these NPCs reaches players at full vanilla amounts because they classify as `Other` and the NPC->Player scaling never runs.
+Two real bug fixes surfaced by the FACEWAN production deployment after v2.0 launch.
 
 ### Fixed
 
-- **`ClassifyEntity` AI-brain fallback** - after the existing five strict type checks, a new fallback scans the entity's Unity components for any whose type name matches Rust's AI-brain naming convention (`BaseAIBrain`, `*AIBrain`, `*AIAgent`, `HTN*`, `*Brain` excluding `BasePlayerBrain`). Catches HumanNPCNew, Frontier NPCs, Tutorial NPCs, and any future humanoid AI without code changes when Facepunch ships them. Real players are filtered out by the upstream `BasePlayer.IsNpc` / `BasePlayer` branch so the fallback never reclassifies them. Type-name backstop handles unusual cases where the component scan misses (`*NPC`/`*Npc` suffix, plus specific `HumanNPC`/`TutorialNPC`/`FrontierNPC`/`ScientistNPC`/`VendorGuard` patterns).
-- **`ResolveRootAttacker` weapon fallback** - when `info.Initiator` is unset (some HTN-driven AI hits arrive this way), now falls back to `info.Weapon?.GetOwnerPlayer()` → `info.WeaponPrefab?.GetParentEntity()` → `info.Weapon?.creatorEntity` before giving up. Previously these hits short-circuited at the `info.Initiator == null` check and bypassed PVEDamageGuard entirely.
-- **`ResolveRootAttacker` creator + parent walk** - when the initiator is a weapon/projectile, the `creatorEntity` check and a new `GetParentEntity()` walk now also accept entities the AI-brain detector recognises, so a HumanNPCNew firing a gun resolves to the NPC instead of returning the gun (which would classify as `Other` and pass through).
-- **`ClassifySubtypeImpl` new humanoid subtypes** - humanoid AI now resolves to `TutorialNPC`, `FrontierNPC`, `TravellingVendorGuard`, `HumanNPCNew`, or `HeavyScientist` (in that priority order) based on `ShortPrefabName`, falling back to `Scientist`. Rule-matrix entries and `PerAttackerStructureScaling` can now target these subtypes directly (e.g. `"FrontierNPC -> RealPlayer": "scale:0.1"`).
+- **Patrol helicopter rockets were leaking damage through to player structures.** When `NpcToStructureScaling = 0` should have blocked all NPC->Structure damage, heli rockets were applying full vanilla damage. Root cause: `ResolveRootAttacker` walked only ONE level of `creatorEntity`, but heli rocket splash damage in current Rust arrives as a `TimedExplosive` with a 2+ level chain back to the `BaseHelicopter`, or sometimes with `creatorEntity = null` entirely. The plugin classified those as `Other` and the NPC->Structure branch was skipped.
 
-### Added
+  Fix: `ResolveRootAttacker` now walks the creator chain up to 4 levels deep. Plus a new `LooksLikeVehicleNpcWeapon(HitInfo)` heuristic checks `info.WeaponPrefab.ShortPrefabName` for known patrol-heli and Bradley munition prefabs (`rocket_heli`, `napalm`, `maincannonshell`). The damage hook applies this check immediately after `ClassifyEntity` so any hit carrying a heli/Bradley weapon prefab is forced to `VehicleNpc` classification regardless of entity-chain attribution.
 
-- **Per-Type AI-brain cache** (`_aiTypeCache`, `Dictionary<Type, bool>`) - the component scan runs once per .NET type and caches the result for the lifetime of the process. Hot path stays O(1).
-- **`/pdg selftest` AI probe** - on load and on demand, the self-test iterates spawned entities for a `BaseNpc`/`NPCPlayer` and verifies the AI-brain detector matches it. Soft-fails if no NPC is spawned yet (re-checks on next manual run).
-- **`/pdg selftest` diagnostic counters** - the response now reports `AI-fallback hits since load` (how often the new fallback caught an entity the five strict checks missed) and `AI types cached`, so admins can see whether the fallback is doing useful work.
-- **`/pdg cache clear` also flushes `_aiTypeCache`** - the AI-type cache is included in the cleared-count.
+- **Configuration `List<string>` fields accumulated duplicates on every load.** `EnvironmentalDamageTypes`, `EventTrackerProviderConfig.Events`, and `GlobalEventTriggersConfig.Events` would each double in size every time the plugin loaded a config that already had values. Root cause: Newtonsoft's `ObjectCreationHandling.Auto` mode REUSES already-initialized collections during deserialization, which causes APPEND rather than REPLACE. Over many `oxide.reload PVEDamageGuard` calls, the FACEWAN config accumulated ~10x duplicate entries in those three lists.
+
+  Fix: added `[JsonProperty(ObjectCreationHandling = ObjectCreationHandling.Replace)]` to all three affected fields. Future loads will not duplicate.
+
+### Changed
+
+- **`RebuildCaches` now auto-deduplicates** `EnvironmentalDamageTypes` and both `Events` lists on load (preserves order, removes repeats). If duplicates are found, the plugin reports them and saves the cleaned config. One-time cleanup for users who already accumulated dupes; harmless no-op on clean configs.
 
 ### Notes
 
-- **Upgrade is drop-in.** Same config schema, same hooks, same API. Existing rule-matrix entries continue to work; new subtype names (`HumanNPCNew`, `FrontierNPC`, `TutorialNPC`, `TravellingVendorGuard`, `HeavyScientist`) become available but no config field is required to use them.
-- The component-name scan is intentionally string-based to survive future Facepunch type renames. If a future AI brain component uses a name like `BehaviorTreeAgent`, the suffix patterns (`AIBrain`, `Brain`, `HTN*`, `AIAgent`) will need to be extended — that's a one-line fix and the type-name backstop will likely catch it in the meantime.
-- Custom AI plugins that want a stable, named category should still call `API_RegisterCategory` (v1.8.0) instead of relying on the prefab-name heuristic. The registered matcher runs before built-in subtype resolution.
+- No config schema changes. Existing v2.0.0 configs upgrade in place; the dedup pass runs automatically on first v2.0.1 load.
+- Behavior change for servers running with `NpcToStructureScaling = 0` or low values: patrol heli rocket damage to player structures now blocks/scales correctly instead of leaking through. If your server intentionally allows heli raiding, set `PerAttackerStructureScaling = { "PatrolHelicopter": 1.0 }` to preserve full heli damage while still scaling other NPCs.
+- The WeaponPrefab heuristic is intentionally narrow (three specific prefab substrings). It does not affect any other weapon classification. If you have a custom heli mod with different prefab names, the existing creator-chain walk (now 4 levels deep) should catch it; if it doesn't, open an issue with the specific prefab name.
 
 ## [2.0.0] - 2026-05-16
 
