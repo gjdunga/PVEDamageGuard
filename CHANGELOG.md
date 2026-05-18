@@ -2,6 +2,30 @@
 
 All notable changes to PVEDamageGuard are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning is [SemVer](https://semver.org/).
 
+## [2.0.1] - 2026-05-18
+
+Bug-fix release. The strict five-type classifier in v2.0.0 (`BasePlayer` / `NPCPlayer` / `BaseNpc` / `BaseHelicopter` / `BradleyAPC`) misses newer humanoid AI whose base class doesn't match — HumanNPCNew, Frontier NPCs, Tutorial NPCs, and other variants Facepunch has added since the v2.0 wipe cycle. Symptom: damage from these NPCs reaches players at full vanilla amounts because they classify as `Other` and the NPC->Player scaling never runs.
+
+### Fixed
+
+- **`ClassifyEntity` AI-brain fallback** - after the existing five strict type checks, a new fallback scans the entity's Unity components for any whose type name matches Rust's AI-brain naming convention (`BaseAIBrain`, `*AIBrain`, `*AIAgent`, `HTN*`, `*Brain` excluding `BasePlayerBrain`). Catches HumanNPCNew, Frontier NPCs, Tutorial NPCs, and any future humanoid AI without code changes when Facepunch ships them. Real players are filtered out by the upstream `BasePlayer.IsNpc` / `BasePlayer` branch so the fallback never reclassifies them. Type-name backstop handles unusual cases where the component scan misses (`*NPC`/`*Npc` suffix, plus specific `HumanNPC`/`TutorialNPC`/`FrontierNPC`/`ScientistNPC`/`VendorGuard` patterns).
+- **`ResolveRootAttacker` weapon fallback** - when `info.Initiator` is unset (some HTN-driven AI hits arrive this way), now falls back to `info.Weapon?.GetOwnerPlayer()` → `info.WeaponPrefab?.GetParentEntity()` → `info.Weapon?.creatorEntity` before giving up. Previously these hits short-circuited at the `info.Initiator == null` check and bypassed PVEDamageGuard entirely.
+- **`ResolveRootAttacker` creator + parent walk** - when the initiator is a weapon/projectile, the `creatorEntity` check and a new `GetParentEntity()` walk now also accept entities the AI-brain detector recognises, so a HumanNPCNew firing a gun resolves to the NPC instead of returning the gun (which would classify as `Other` and pass through).
+- **`ClassifySubtypeImpl` new humanoid subtypes** - humanoid AI now resolves to `TutorialNPC`, `FrontierNPC`, `TravellingVendorGuard`, `HumanNPCNew`, or `HeavyScientist` (in that priority order) based on `ShortPrefabName`, falling back to `Scientist`. Rule-matrix entries and `PerAttackerStructureScaling` can now target these subtypes directly (e.g. `"FrontierNPC -> RealPlayer": "scale:0.1"`).
+
+### Added
+
+- **Per-Type AI-brain cache** (`_aiTypeCache`, `Dictionary<Type, bool>`) - the component scan runs once per .NET type and caches the result for the lifetime of the process. Hot path stays O(1).
+- **`/pdg selftest` AI probe** - on load and on demand, the self-test iterates spawned entities for a `BaseNpc`/`NPCPlayer` and verifies the AI-brain detector matches it. Soft-fails if no NPC is spawned yet (re-checks on next manual run).
+- **`/pdg selftest` diagnostic counters** - the response now reports `AI-fallback hits since load` (how often the new fallback caught an entity the five strict checks missed) and `AI types cached`, so admins can see whether the fallback is doing useful work.
+- **`/pdg cache clear` also flushes `_aiTypeCache`** - the AI-type cache is included in the cleared-count.
+
+### Notes
+
+- **Upgrade is drop-in.** Same config schema, same hooks, same API. Existing rule-matrix entries continue to work; new subtype names (`HumanNPCNew`, `FrontierNPC`, `TutorialNPC`, `TravellingVendorGuard`, `HeavyScientist`) become available but no config field is required to use them.
+- The component-name scan is intentionally string-based to survive future Facepunch type renames. If a future AI brain component uses a name like `BehaviorTreeAgent`, the suffix patterns (`AIBrain`, `Brain`, `HTN*`, `AIAgent`) will need to be extended — that's a one-line fix and the type-name backstop will likely catch it in the meantime.
+- Custom AI plugins that want a stable, named category should still call `API_RegisterCategory` (v1.8.0) instead of relying on the prefab-name heuristic. The registered matcher runs before built-in subtype resolution.
+
 ## [2.0.0] - 2026-05-16
 
 **Marketplace-launch milestone.** Same plugin binary as v1.9.0; the major version bump marks the Codefling listing going live and a stable API/config contract for the v2.x lifetime. No code changes vs v1.9.0; the diff is purely launch assets and metadata.

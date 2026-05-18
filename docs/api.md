@@ -185,7 +185,7 @@ public enum NpcCategory
 {
     None,           // not an NPC
     RealPlayer,     // human player
-    HumanNpc,       // BasePlayer.IsNpc, ScientistNPC, HumanNPCNew, vendor guards, future
+    HumanNpc,       // BasePlayer.IsNpc, ScientistNPC, HumanNPCNew, vendor guards, Tutorial/Frontier, future
     AnimalNpc,      // BaseNpc (bears, wolves, boars, zombies, scarecrows)
     VehicleNpc,     // BaseHelicopter, BradleyAPC, their projectiles
     OwnedTrap,      // player-owned trap (auto-turret, shotgun trap, flame turret)
@@ -197,6 +197,21 @@ public enum NpcCategory
 ```
 
 If you can reference `PVEDamageGuard` as a direct type (same assembly or shared compilation unit), you can use the enum directly. Otherwise compare strings as shown in the examples above.
+
+### Humanoid NPC subtype names (v2.0.1)
+
+`API_ClassifySubtype` returns one of the following strings for humanoid NPCs, in priority order. Use them in rule-matrix entries (`"TutorialNPC -> RealPlayer": "scale:0.25"`) and `PerAttackerStructureScaling` keys.
+
+| Subtype | Matches when prefab contains |
+|---|---|
+| `TutorialNPC` | `tutorial` |
+| `FrontierNPC` | `frontier` |
+| `TravellingVendorGuard` | `vendor` |
+| `HumanNPCNew` | `humannpc` |
+| `HeavyScientist` | `heavyscientist` |
+| `Scientist` | (fallback for any other humanoid AI) |
+
+Classification is **strict-type-checks-first, AI-brain-component-fallback-second** (v2.0.1). If an NPC inherits from `BasePlayer`/`NPCPlayer`/`BaseNpc` or has a Unity component whose type name matches Rust's AI brain naming convention (`BaseAIBrain`, `*AIBrain`, `*AIAgent`, `HTN*`, `*Brain`), it classifies as `HumanNpc` and a subtype is assigned per the table above.
 
 ## Integration recipe: replacing prefab-name matching
 
