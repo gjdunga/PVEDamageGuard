@@ -2,6 +2,31 @@
 
 All notable changes to PVEDamageGuard are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning is [SemVer](https://semver.org/).
 
+## [2.0.2] - 2026-05-19
+
+Two reported gameplay bugs surfaced after the v2.0.1 deployment:
+
+1. **Players take damage shooting their own walls** — `IsAttackerAuthorizedOnStructure` was returning `false` for the wall's owner under specific conditions (TC sits at a building edge so `BuildingBlock.GetBuildingPrivilege()` returns null even though the player is authorized on a connected TC; or modern Rust's `authorizedPlayers` list element shape silently fails to match `attacker.userID` instead of throwing).
+2. **Helicopter still damages player-made walls** — even with v2.0.1's classifier fix correctly attributing heli rockets to `VehicleNpc`, the default rule `VehicleNpc -> Building` is `scale:0.5` (50% damage, not zero). The legacy fallback `NpcToStructureScaling` is also `0.5f`. Working as designed but not what strict-PVE admins expect.
+
+### Fixed
+
+- **`IsAttackerAuthorizedOnStructure` rewritten**.
+  - **Walks the entire `Building` aggregate**, not just `BuildingBlock.GetBuildingPrivilege()`. Reflection-based access to `Building.buildingPrivileges` / `Building.privileges` so we're not locked to a single API name. Fixes the case where a wall is authorized via a connected TC but `GetBuildingPrivilege()` returns null because the wall sits between TC zones.
+  - **`authorizedPlayers` scan is now reflection-based, not exception-driven**. Reads each element, type-checks for `ulong` first, then for `PlayerNameID`-shaped structs via `userid` / `userId` / `UserId` / `UserID` field/property. Prior code relied on a `try`/`catch` to detect type drift, but some Rust builds let the wrong-type comparison silently fail-to-match instead of throwing, so authorized players were treated as unauthorized.
+  - **`Trace`-level diagnostic logging**. Set `Logging: "Trace"` (or `/pdg log trace`) and every auth check prints which path matched/missed (`owner == attacker.userID`, team contains owner, TC matched, etc.). Lets admins live-debug remaining false reflects.
+
+### Added
+
+- **`/pdg preset pvelockdown`** — new fifth preset for strict PVE servers. Sets all `NpcCategory -> Building` and `NpcCategory -> Deployable` rules to `block` (helis, Bradley, scientists, animals can't touch player structures), keeps `RealPlayer -> Building/Deployable` as `allow` so the foreign-structure-reflect handles non-owners, and zeroes the legacy `NpcToStructureScaling` / `PerAttackerStructureScaling` so the same lockdown applies if rule matrix is later disabled. Apply with `/pdg preset pvelockdown` from chat (or `pdg preset pvelockdown` from console with `pvedamageguard.admin`).
+
+### Notes
+
+- **Existing configs are not migrated.** The v2.0 default `VehicleNpc -> Building` = `scale:0.5` and `NpcToStructureScaling` = `0.5f` are preserved for upgrading servers; only fresh installs that never had a config get the v2.0 defaults. If you want lockdown PVE, run `/pdg preset pvelockdown` and then `/pdg reload` (config saves automatically).
+- The auth-check rewrite is backward-compatible. If your prior config worked, it still works; this only adds new auth paths and diagnostics, never removes existing ones. The Trace-level log is off by default (`Logging: "None"`); turn it on only when investigating.
+- If `/pdg preset pvelockdown` is applied and you later want partial heli damage (e.g. heli rockets at 25%), edit `PerAttackerStructureScaling["PatrolHelicopter"]` in `oxide/config/PVEDamageGuard.json` or use `/pdg scale PatrolHelicopter 0.25`. The rule-matrix entry `VehicleNpc -> Building` = `block` overrides the per-attacker mult when rule matrix is on; switch the rule to `scale:0.25` to get partial damage back.
+- Complements v2.0.1's classifier work: that release ensured heli rockets are correctly attributed as `VehicleNpc`; this release gives admins the rule-matrix configuration to make `VehicleNpc -> Building` mean "no damage at all".
+
 ## [2.0.1] - 2026-05-16
 
 Two real bug fixes surfaced by the FACEWAN production deployment after v2.0 launch.
