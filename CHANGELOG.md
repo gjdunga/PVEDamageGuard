@@ -2,6 +2,42 @@
 
 All notable changes to PVEDamageGuard are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning is [SemVer](https://semver.org/).
 
+## [2.0.6] - 2026-05-19
+
+User report: "the new AI scientists are causing tremendous damage, unlike the normal AI scientists. Is there a value for them?" There wasn't — the v2.0.1 `docs/api.md` update promised subtypes `TutorialNPC` / `FrontierNPC` / `TravellingVendorGuard` / `HumanNPCNew` / `HeavyScientist`, but the actual prefab matching never landed in `ClassifySubtypeImpl`. Every humanoid AI variant — old Scientist, Tutorial newbie-island NPCs, Frontier wilderness AI, the new HumanNPCNew brain — fell through to a single `"Scientist"` subtype, so admins had one knob for everything.
+
+### Added
+
+- **Subtype detection for the newer humanoid AI variants.** `ClassifySubtypeImpl` now matches prefab substring before falling back to `Scientist`:
+
+  | Returned subtype | Matches prefab containing |
+  |---|---|
+  | `TutorialNPC` | `tutorial` |
+  | `FrontierNPC` | `frontier` |
+  | `TravellingVendorGuard` | `vendor` |
+  | `HumanNPCNew` | `humannpc` |
+  | `HeavyScientist` | `heavyscientist` |
+  | `Scientist` | (fallback for any other humanoid AI) |
+
+  Order matters — more specific prefabs check before the generic fallback. Cached per-entity by `_classifyCache` like every other subtype, so no per-hit cost change.
+
+- **`PerVictimSubtypeScaling` defaults extended** with `1.0x` entries for all five new subtypes so they appear in fresh configs and can be tuned via JSON or rule-matrix entries.
+
+- **`/pdg subtype <Subtype> <DamageType|Default> <multiplier> [context]` admin command.** Sets or updates the rule-matrix entry `<Subtype> -> RealPlayer` in the named context (default: the rule matrix's `DefaultContext`) to a per-damage-type scale, merging with any existing scale entries. Saves and reloads in one step — no JSON edit required.
+
+  Examples:
+  - `/pdg subtype FrontierNPC Bullet 0.10` -> `FrontierNPC -> RealPlayer = scale:{Bullet:0.10}` in `Default`
+  - `/pdg subtype FrontierNPC Default 0.25` -> adds the catch-all bucket: `scale:{Bullet:0.10,Default:0.25}`
+  - `/pdg subtype HeavyScientist Default 0.5 AtPvpEvent` -> sets the rule in `AtPvpEvent` (overrides inheritance from `Default`)
+
+  Requires `RuleMatrix.Enabled = true` (the command errors out and points the admin at `/pdg scale` or `/pdg preset pvelockdown` otherwise). Same numeric bounds as `/pdg scale` (0-100).
+
+### Notes
+
+- **Existing servers see no behavior change.** All five new subtypes default to `1.0x` in `PerVictimSubtypeScaling`, and no rule-matrix rules are auto-generated against the new subtypes. Damage values are unchanged until an admin sets a rule via `/pdg subtype` or hand-edits the matrix.
+- **Use `/pdg test` aiming at a Frontier or Tutorial scientist** to confirm the new classification. You should see `subtype=FrontierNPC` (or `TutorialNPC` / `HumanNPCNew` etc) instead of `Scientist`.
+- **Rule precedence** is unchanged from v1.2: subtype-keyed rules beat category-keyed rules. So `FrontierNPC -> RealPlayer = scale:0.25` overrides the inherited `HumanNpc -> RealPlayer = scale:{Bullet:0.25,Default:0.5}` when the attacker classifies as a Frontier NPC; old Scientists still go through the `HumanNpc` rule.
+
 ## [2.0.5] - 2026-05-19
 
 Another iteration on "damage to walls reflects to the player" - this time the focus is admin-visibility rather than another speculative behavior change. A user reported in production that `/pdg test` showed `RealPlayer -> Building` resolved to `'block'` yet wall hits were still bouncing back at the player. Walking through the screenshots revealed two distinct problems:

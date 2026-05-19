@@ -15,7 +15,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("PVE Damage Guard", "Gabriel Dungan (DunganSoft Technologies)", "2.0.5")]
+    [Info("PVE Damage Guard", "Gabriel Dungan (DunganSoft Technologies)", "2.0.6")]
     [Description("Future-proof NPC classifier, declarative rule matrix, per-attacker/per-victim damage scaling, time-of-day modifiers, ZoneManager / RaidableBases / Convoy / Armored Train context switching, reflect-as-a-service, Discord webhook output, Damage Control config import, preset configurations, config validation, classification cache, hook timing telemetry, Carbon framework support, in-game CUI admin panel with live-streaming Logging and paginated History tabs, per-player damage statistics, and per-event context overrides for PVE Rust servers.")]
     public class PVEDamageGuard : CovalencePlugin
     {
@@ -368,7 +368,13 @@ namespace Oxide.Plugins
                 ["SamSite"]         = new Dictionary<string, float> { ["Default"] = 1.0f },
                 ["Barrel"]          = new Dictionary<string, float> { ["Default"] = 1.0f },
                 ["Zombie"]          = new Dictionary<string, float> { ["Default"] = 1.0f },
-                ["Scientist"]       = new Dictionary<string, float> { ["Default"] = 1.0f }
+                ["Scientist"]       = new Dictionary<string, float> { ["Default"] = 1.0f },
+                // v2.0.6 - newer humanoid AI variants. Defaults preserve vanilla; tune as needed.
+                ["TutorialNPC"]            = new Dictionary<string, float> { ["Default"] = 1.0f },
+                ["FrontierNPC"]            = new Dictionary<string, float> { ["Default"] = 1.0f },
+                ["TravellingVendorGuard"]  = new Dictionary<string, float> { ["Default"] = 1.0f },
+                ["HumanNPCNew"]            = new Dictionary<string, float> { ["Default"] = 1.0f },
+                ["HeavyScientist"]         = new Dictionary<string, float> { ["Default"] = 1.0f }
             };
 
             public string TimeOfDaySource = "Game";
@@ -1772,7 +1778,18 @@ namespace Oxide.Plugins
             if (entity is LootContainer && prefab.Contains("barrel")) return "Barrel";
 
             if (entity is NPCPlayer || (entity is BasePlayer bp2 && bp2.IsNpc))
+            {
+                // v2.0.6 - distinct subtypes for the newer humanoid AI variants. Same prefab-
+                // substring matches the api.md table has documented since v2.0.1; the doc was
+                // ahead of the code. Order matters: more-specific prefabs must check before the
+                // generic Scientist fallback.
+                if (prefab.Contains("tutorial"))       return "TutorialNPC";
+                if (prefab.Contains("frontier"))       return "FrontierNPC";
+                if (prefab.Contains("vendor"))         return "TravellingVendorGuard";
+                if (prefab.Contains("humannpc"))       return "HumanNPCNew";
+                if (prefab.Contains("heavyscientist")) return "HeavyScientist";
                 return "Scientist";
+            }
 
             return null;
         }
@@ -3504,6 +3521,7 @@ namespace Oxide.Plugins
                 case "log":      return Lang("HelpLog");
                 case "logfile":  return Lang("HelpLogFile");
                 case "scale":    return Lang("HelpScale");
+                case "subtype":  return Lang("HelpSubtype");
                 case "hour":     return Lang("HelpHour");
                 case "context":  return Lang("HelpContext");
                 case "history":  return Lang("HelpHistory");
@@ -3922,6 +3940,7 @@ namespace Oxide.Plugins
                 case "log":     CmdLog(player, args); break;
                 case "logfile": CmdLogFile(player, args); break;
                 case "scale":   CmdScale(player, args); break;
+                case "subtype": CmdSubtype(player, args); break;
                 case "hour":    CmdHour(player); break;
                 case "test":    CmdTest(player, args); break;
                 case "history": CmdHistory(player, args); break;
@@ -4279,6 +4298,59 @@ namespace Oxide.Plugins
             player.Reply(string.Format(Lang("ScaleSet", player.Id), args[1], mult));
         }
 
+        // v2.0.6 - /pdg subtype <Subtype> <DamageType|Default> <multiplier> [context]
+        // Sets or updates the rule-matrix entry `<Subtype> -> RealPlayer` in the given
+        // context (default: "Default") to a per-damage-type scale, merging with any
+        // existing scale entries. Use "Default" as the damage type to set the catch-all
+        // bucket. Designed for the common case "Frontier scientists kill me too fast" -
+        // one chat command instead of a JSON edit + reload.
+        //
+        // Examples:
+        //   /pdg subtype FrontierNPC Bullet 0.10
+        //     -> FrontierNPC -> RealPlayer = scale:{Bullet:0.10}
+        //   /pdg subtype FrontierNPC Default 0.25
+        //     -> FrontierNPC -> RealPlayer = scale:{Bullet:0.10,Default:0.25}
+        //   /pdg subtype HeavyScientist Default 0.5 AtPvpEvent
+        //     -> sets the rule in the AtPvpEvent context (overrides inheritance)
+        private void CmdSubtype(IPlayer player, string[] args)
+        {
+            if (args.Length < 4) { player.Reply(Lang("SubtypeUsage", player.Id)); return; }
+            if (!_ruleMatrixEnabled || _config.RuleMatrix == null || _config.RuleMatrix.Contexts == null)
+            { player.Reply(Lang("SubtypeRuleMatrixDisabled", player.Id)); return; }
+
+            string subtype = args[1];
+            string damageType = args[2];
+            if (!float.TryParse(args[3], out var mult) || mult < 0f || mult > 100f)
+            { player.Reply(Lang("ScaleBadNumber", player.Id)); return; }
+            string ctxName = args.Length >= 5 ? args[4] : (_config.RuleMatrix.DefaultContext ?? "Default");
+
+            if (!_config.RuleMatrix.Contexts.TryGetValue(ctxName, out var ctx) || ctx == null)
+            { player.Reply(string.Format(Lang("RulesContextNotFound", player.Id), ctxName)); return; }
+            if (ctx.Rules == null) ctx.Rules = new Dictionary<string, string>();
+
+            string key = $"{subtype} -> RealPlayer";
+            string existingActionStr;
+            ctx.Rules.TryGetValue(key, out existingActionStr);
+
+            // Parse existing scale (if any) and merge new entry
+            var perType = new Dictionary<string, float>(StringComparer.OrdinalIgnoreCase);
+            var existing = ParseRuleAction(existingActionStr) as ScaleAction;
+            if (existing != null)
+            {
+                if (existing.PerType != null)
+                    foreach (var kv in existing.PerType) perType[kv.Key] = kv.Value;
+                else if (existing.Uniform.HasValue)
+                    perType["Default"] = existing.Uniform.Value;
+            }
+            perType[damageType] = mult;
+
+            var newAction = new ScaleAction { PerType = perType };
+            ctx.Rules[key] = newAction.Encode();
+            SaveConfig();
+            RebuildCaches();
+            player.Reply(string.Format(Lang("SubtypeSet", player.Id), key, ctxName, ctx.Rules[key]));
+        }
+
         private void CmdHour(IPlayer player)
         {
             int h = GetCurrentHour();
@@ -4597,7 +4669,7 @@ namespace Oxide.Plugins
                 ["NoPermission"]    = "You do not have permission to use this command.",
                 ["ConfigReloaded"]  = "PVEDamageGuard config reloaded.",
                 ["ConfigReloadedWithIssues"] = "PVEDamageGuard config reloaded with {0} validation issue(s). Run /pdg validate for details.",
-                ["UsageRoot"]       = "Usage: /pdg [reload | log | logfile | scale | hour | context | history | recent | test | preset | import | validate | events | webhook | timing | selftest | cache | ui | close | help]",
+                ["UsageRoot"]       = "Usage: /pdg [reload | log | logfile | scale | subtype | hour | context | history | recent | test | preset | import | validate | events | webhook | timing | selftest | cache | ui | close | help]",
                 ["PresetUsage"]     = "Usage: /pdg preset <name>. Available presets: {0}.",
                 ["PresetUnknown"]   = "Unknown preset '{0}'. Available: {1}.",
                 ["PresetApplied"]   = "Applied preset '{0}'. Config saved and reloaded. Review with /pdg status.",
@@ -4605,11 +4677,12 @@ namespace Oxide.Plugins
                 ["ImportDone"]      = "Damage Control import complete. Imported: {0}, skipped: {1}.",
                 ["ValidateClean"]   = "Config validation passed. No issues found.",
                 ["ValidateIssues"]  = "Config validation found {0} issue(s):",
-                ["HelpRoot"]        = "PVEDamageGuard subcommands. Use /pdg help <subcommand> for details on each:\n  reload   - reload config from disk\n  log      - set console log verbosity\n  logfile  - toggle file logging\n  scale    - tune NPC->Player damage multiplier\n  hour     - show current hour and TOD multipliers\n  context  - show active rule-matrix context\n  history  - show recent classified hits\n  recent   - dump last N log lines from the in-memory ring buffer (with optional filter)\n  test     - aim and classify, or 'test fire <type> <amount>' to dry-run\n  preset   - apply a known-good preset config\n  import   - import from Damage Control config\n  validate - check config for issues\n  help     - this help",
+                ["HelpRoot"]        = "PVEDamageGuard subcommands. Use /pdg help <subcommand> for details on each:\n  reload   - reload config from disk\n  log      - set console log verbosity\n  logfile  - toggle file logging\n  scale    - tune global NPC->Player damage multiplier by damage type\n  subtype  - tune per-attacker-subtype rule (e.g. FrontierNPC -> RealPlayer)\n  hour     - show current hour and TOD multipliers\n  context  - show active rule-matrix context\n  history  - show recent classified hits\n  recent   - dump last N log lines from the in-memory ring buffer (with optional filter)\n  test     - aim and classify, or 'test fire <type> <amount>' to dry-run\n  preset   - apply a known-good preset config\n  import   - import from Damage Control config\n  validate - check config for issues\n  help     - this help",
                 ["HelpReload"]      = "/pdg reload - reload config and lang from disk, re-run validation. Equivalent to oxide.reload PVEDamageGuard.",
                 ["HelpLog"]         = "/pdg log <level> - set log verbosity. Levels: None (silent), Reflects (only PvP reflects), Scaled (every modified hit), All (also passthroughs), Trace (full HitInfo dump). Example: /pdg log Reflects",
                 ["HelpLogFile"]     = "/pdg logfile <on|off> - toggle whether log lines are also written to oxide/logs/PVEDamageGuard/damage-YYYY-MM-DD.txt. Example: /pdg logfile on",
                 ["HelpScale"]       = "/pdg scale <DamageType> <multiplier 0-100> - tune the NPC->Player scaling for one damage type. Persists to config. Example: /pdg scale Bullet 0.1",
+                ["HelpSubtype"]     = "/pdg subtype <Subtype> <DamageType|Default> <multiplier 0-100> [context] - set the rule-matrix entry '<Subtype> -> RealPlayer' to a per-damage-type scale, merging with any existing scale. Use 'Default' as the DamageType to set the catch-all bucket. Optional context (default: Default). Requires RuleMatrix.Enabled=true. Examples: /pdg subtype FrontierNPC Bullet 0.10 (clamp Frontier scientist bullet damage to 10%), /pdg subtype HeavyScientist Default 0.5 AtPvpEvent (50% catch-all in AtPvpEvent context). Known humanoid subtypes: TutorialNPC, FrontierNPC, TravellingVendorGuard, HumanNPCNew, HeavyScientist, Scientist.",
                 ["HelpHour"]        = "/pdg hour - report current hour from TimeOfDaySource and all four TOD multipliers (Global, PvP, NpcToPlayer, NpcToStructure).",
                 ["HelpContext"]     = "/pdg context - show the rule-matrix context active at your current position. Only meaningful when RuleMatrix.Enabled=true.",
                 ["HelpHistory"]     = "/pdg history [N] - show the last N classified hits (default 10, max 100). Filled regardless of console log level.",
@@ -4626,6 +4699,9 @@ namespace Oxide.Plugins
                 ["ScaleUsage"]      = "Usage: /pdg scale <DamageType> <multiplier 0-100>",
                 ["ScaleBadNumber"]  = "Multiplier must be a number between 0 and 100.",
                 ["ScaleSet"]        = "NPC->Player scaling for {0} set to {1:F2}x.",
+                ["SubtypeUsage"]    = "Usage: /pdg subtype <Subtype> <DamageType|Default> <multiplier 0-100> [context]. Example: /pdg subtype FrontierNPC Bullet 0.10",
+                ["SubtypeRuleMatrixDisabled"] = "/pdg subtype requires the rule matrix to be enabled (RuleMatrix.Enabled=true). Use /pdg scale for the legacy global scaling, or /pdg preset pvelockdown to enable rule matrix with safe defaults.",
+                ["SubtypeSet"]      = "Rule updated. {0}  (context: {1})  ->  '{2}'. Saved.",
                 ["HourReport"]      = "Hour {0} ({1}). TOD multipliers: Global={2:F2}, PvP={3:F2}, NpcToPlayer={4:F2}, NpcToStructure={5:F2}.",
                 ["ContextOnlyInGame"] = "/pdg context must be run by an in-game player (position-based lookup).",
                 ["ContextRuleMatrixDisabled"] = "Rule matrix is disabled in config (RuleMatrix.Enabled=false). No context is currently active.",
