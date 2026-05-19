@@ -2,6 +2,30 @@
 
 All notable changes to PVEDamageGuard are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning is [SemVer](https://semver.org/).
 
+## [2.0.5] - 2026-05-19
+
+Another iteration on "damage to walls reflects to the player" - this time the focus is admin-visibility rather than another speculative behavior change. A user reported in production that `/pdg test` showed `RealPlayer -> Building` resolved to `'block'` yet wall hits were still bouncing back at the player. Walking through the screenshots revealed two distinct problems:
+
+1. **The `/pdg test` output was lying via format string.** The lang key `TestRuleAsVictim` was written as `"RealPlayer -> {0}_victim = '{0}', HumanNpc -> {0}_victim = '{1}'"` - three `{0}` placeholders, only two args passed. The result rendered as `RealPlayer -> block_victim = 'block'` which reads like a property name `block_victim` is set to `'block'`. The actual victim category (e.g. `Building`) never appeared. Admins couldn't tell what the rule was actually keyed against.
+2. **`/pdg test` told you the rule but not the override.** When the rule-matrix path is on, `HandleViaRuleMatrix` has a second decision stage (the v1.7.1 foreign-structure-reflect override) that can upgrade `AllowAction` to `ReflectAction` when the attacker isn't TC-authorized. `/pdg test` reported the raw rule lookup and skipped that stage, so admins seeing `'allow'` got a reflect at runtime with no warning.
+
+### Fixed
+
+- **`TestRuleAsVictim` format string corrected** in all 8 supported languages (en/es/fr/de/ru/la/pt/zh). New format: `"Rules at this context: RealPlayer -> {0} = '{1}', HumanNpc -> {0} = '{2}'"`. The C# call now passes the resolved victim category (e.g. `Building`, `Deployable`) as `{0}` and the two encoded actions as `{1}` / `{2}`. Output now reads `RealPlayer -> Building = 'block', HumanNpc -> Building = 'scale:0.03'`.
+
+### Added
+
+- **`NeverReflectStructureDamage` config flag** (default `false` for backward compatibility). Hard kill-switch. When `true`, any `RealPlayer -> Building / Deployable` hit that would otherwise resolve to a reflect — whether from a direct rule-matrix `ReflectAction`, the v1.7.1 foreign-structure-reflect override on the rule-matrix path, or the equivalent override on the legacy v1.1 scaling path — is forcibly converted to a block. The wall takes no damage, the attacker takes no reflect. `RealPlayer -> RealPlayer` reflects (true PvP) are unaffected.
+- **`pvelockdown` preset now enables `NeverReflectStructureDamage = true`.** The strictest preset already blocked NPC->structure, allowed own-structure, and reflected foreign-structure raids. With this change "lockdown" now means *no wall reflects to a player, ever* — raid attempts are blocked outright rather than punished with self-reflect. Admins who specifically want the reflect-on-raid semantics should hand-edit `NeverReflectStructureDamage` back to `false` after applying the preset, or use `pvereflect` instead.
+- **`/pdg test` post-rule diagnostic** for `Building` / `Deployable` victims when rule-matrix is on. The command now prints two extra lines after the rule lookup: (a) the attacker's authorization status on this structure (matches `IsAttackerAuthorizedOnStructure` exactly) and the OwnerID, (b) the **final action** that would actually fire at runtime including any override (`foreign-structure-reflect override`, `NeverReflectStructureDamage kill-switch`, etc.) and the reason. So `/pdg test` aiming at a wall now reads e.g. `Final action if you attack this entity right now: reflect:1.00   (reason: foreign-structure-reflect override (you are not authorized))` and the admin sees exactly why.
+- **`/pdg recent [N] [filter]` admin command.** Dumps the last `N` lines from the in-memory ring buffer (the same buffer that powers the CUI Logging tab), optionally filtered by substring. Examples: `/pdg recent 50 reflect` shows the last 50 reflect events, `/pdg recent unauthorized` shows recent unauthorized-auth-check decisions. Useful for admins who want to confirm a runtime behavior without opening the CUI panel or tailing the log file.
+
+### Notes
+
+- **Existing servers see no behavior change** unless they (a) re-apply `pvelockdown`, or (b) hand-edit `NeverReflectStructureDamage: true` into their config. The kill-switch is opt-in.
+- **The rule-matrix path's `BlockAction` always blocked reflects.** If your `/pdg test` already showed `'block'` and you were still seeing reflects, you were almost certainly observing the foreign-structure-reflect override firing on an `AllowAction` resolved from a *different* rule (e.g. `*->*` fallback) rather than the rule shown. The new "Final action" line will surface that path.
+- **Backwards compat for the `pvelockdown` preset.** Servers running `pvelockdown` from v2.0.2-v2.0.4 had `ReflectPlayerDamageToForeignStructures = true` so a non-TC-authorized player got reflected. From v2.0.5, the same preset blocks the hit instead. If you relied on the reflect-as-punishment behavior, re-apply `pvelockdown` with `/pdg preset pvelockdown`, then edit the config: `NeverReflectStructureDamage: false`.
+
 ## [2.0.4] - 2026-05-19
 
 Two issues surfaced from a production trace log on a busy PVE server:

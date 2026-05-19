@@ -15,7 +15,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("PVE Damage Guard", "Gabriel Dungan (DunganSoft Technologies)", "2.0.4")]
+    [Info("PVE Damage Guard", "Gabriel Dungan (DunganSoft Technologies)", "2.0.5")]
     [Description("Future-proof NPC classifier, declarative rule matrix, per-attacker/per-victim damage scaling, time-of-day modifiers, ZoneManager / RaidableBases / Convoy / Armored Train context switching, reflect-as-a-service, Discord webhook output, Damage Control config import, preset configurations, config validation, classification cache, hook timing telemetry, Carbon framework support, in-game CUI admin panel with live-streaming Logging and paginated History tabs, per-player damage statistics, and per-event context overrides for PVE Rust servers.")]
     public class PVEDamageGuard : CovalencePlugin
     {
@@ -315,6 +315,15 @@ namespace Oxide.Plugins
             // is still allowed because it's matched by EnvironmentalDamageTypes first.
             // Default false for backward compatibility; set true on strict-PVE servers.
             public bool BlockUnattributedDamageToPlayers = false;
+
+            // v2.0.5 - hard kill-switch for "damage to walls reflects to players". When true,
+            // any RealPlayer -> Building / Deployable hit that would otherwise resolve to a
+            // reflect (rule-matrix ReflectAction, foreign-structure-reflect override in either
+            // path) is forcibly converted to a block. The wall takes no damage, the attacker
+            // takes no reflect. Default false for backward compatibility; admins who hit a
+            // false-positive on the auth check (or who simply never want self-reflect on
+            // their own structures regardless of authorization) can flip this on.
+            public bool NeverReflectStructureDamage = false;
 
             public Dictionary<string, float> NpcToPlayerScaling = new Dictionary<string, float>
             {
@@ -1214,6 +1223,21 @@ namespace Oxide.Plugins
                 }
             }
 
+            // v2.0.5 - NeverReflectStructureDamage kill-switch. Catches every path that
+            // would reflect a Player -> Building/Deployable hit back at the player: the
+            // rule-matrix ReflectAction (e.g. an admin rule of `RealPlayer -> Building =
+            // reflect:1.0`) AND the foreign-structure-reflect override above. Converts to
+            // BlockAction so the wall takes no damage and the player takes no reflect.
+            // Does not affect RealPlayer -> RealPlayer reflects (those are PvP, not wall).
+            if (_config.NeverReflectStructureDamage
+                && action is ReflectAction
+                && attackerCat == NpcCategory.RealPlayer
+                && (victimCat == NpcCategory.Building || victimCat == NpcCategory.Deployable))
+            {
+                LogHit(LogLevel.Scaled, $"rule[{context}]-reflect-suppressed-by-killswitch", info, entity, attackerCat, victimCat, context, "block");
+                return true;
+            }
+
             int hour = _todEnabled ? GetCurrentHour() : 0;
             float todGlobal = _todEnabled ? GetTodMult(TodGlobal, hour) : 1f;
 
@@ -1546,6 +1570,12 @@ namespace Oxide.Plugins
                 {
                     LogHit(LogLevel.All, "player->foreign-structure-yielded-truepve", info, entity, attackerCat, victimCat, null, "yield");
                     return null;
+                }
+                // v2.0.5 - kill-switch short-circuits reflect on legacy path too.
+                if (_config.NeverReflectStructureDamage)
+                {
+                    LogHit(LogLevel.Scaled, "player->foreign-structure-suppressed-by-killswitch", info, entity, attackerCat, victimCat, null, "block");
+                    return true;
                 }
                 if (_config.ReflectPvpEnabled)
                 {
@@ -3150,15 +3180,20 @@ namespace Oxide.Plugins
 
                 case "pvelockdown":
                     // v2.0.2 - strict PVE: zero damage from any NPC/heli/Bradley to structures,
-                    // own-structure damage allowed, foreign-structure damage reflected back.
-                    // Use this when the v2.0 defaults (scale:0.5 on VehicleNpc -> Building)
-                    // still let helis chip your walls.
+                    // own-structure damage allowed.
+                    // v2.0.5 - lockdown now also flips NeverReflectStructureDamage on: foreign-
+                    // structure attempts are BLOCKED (vanilla damage cancelled) instead of
+                    // reflected back at the attacker. This matches the user expectation that
+                    // "lockdown" means "raids are impossible" rather than "raids are punished".
+                    // Admins who want the reflect-on-raid behavior should run a custom config
+                    // (set NeverReflectStructureDamage=false) instead of pvelockdown.
                     _config.ReflectPvpEnabled = true;
                     _config.ReflectMultiplier = 1.0f;
                     _config.BlockPvpIfNotReflecting = true;
                     _config.AllowTeammateDamage = false;
                     _config.ReflectPlayerDamageToForeignStructures = true;
                     _config.BlockUnattributedDamageToPlayers = true; // v2.0.4 - block heli/Bradley crash, teleport-into-geometry, plugin-induced null-Initiator damage
+                    _config.NeverReflectStructureDamage = true; // v2.0.5 - lockdown means "no wall reflects to player, ever"
                     _config.NpcToPlayerScaling = new Dictionary<string, float>
                     {
                         ["Default"] = 0.25f, ["Bullet"] = 0.1f, ["Slash"] = 0.25f, ["Stab"] = 0.25f,
@@ -3472,6 +3507,7 @@ namespace Oxide.Plugins
                 case "hour":     return Lang("HelpHour");
                 case "context":  return Lang("HelpContext");
                 case "history":  return Lang("HelpHistory");
+                case "recent":   return Lang("HelpRecent");
                 case "test":     return Lang("HelpTest");
                 case "import":   return Lang("HelpImport");
                 case "preset":   return string.Format(Lang("HelpPreset"), string.Join(", ", _presetNames));
@@ -3889,6 +3925,7 @@ namespace Oxide.Plugins
                 case "hour":    CmdHour(player); break;
                 case "test":    CmdTest(player, args); break;
                 case "history": CmdHistory(player, args); break;
+                case "recent":  CmdRecent(player, args); break;
                 case "context": CmdContext(player); break;
                 case "preset":  CmdPreset(player, args); break;
                 case "import":  CmdImport(player, args); break;
@@ -4278,6 +4315,44 @@ namespace Oxide.Plugins
             player.Reply(string.Join("\n", lines));
         }
 
+        // v2.0.5 - /pdg recent [N] [filter]
+        // Show last N log lines from the in-memory ring buffer, newest last. Default N=20.
+        // Optional filter substring (case-insensitive) - useful for "show me only reflects"
+        // (filter=reflect) or "show me only my own player" (filter=Cerberus). Complements
+        // the CUI Logging tab for admins who don't want to open the UI.
+        private void CmdRecent(IPlayer player, string[] args)
+        {
+            int n = 20;
+            string filter = null;
+            if (args.Length >= 2)
+            {
+                if (int.TryParse(args[1], out var parsed)) n = Math.Max(1, Math.Min(parsed, LogLineCapacity));
+                else filter = args[1];
+            }
+            if (args.Length >= 3 && filter == null) filter = args[2];
+
+            var snapshot = _recentLogLines.ToArray();
+            var matched = new List<LogLine>();
+            for (int i = 0; i < snapshot.Length; i++)
+            {
+                if (filter != null && snapshot[i].Message.IndexOf(filter, StringComparison.OrdinalIgnoreCase) < 0)
+                    continue;
+                matched.Add(snapshot[i]);
+            }
+            int start = Math.Max(0, matched.Count - n);
+            var lines = new List<string>();
+            string header = filter != null
+                ? string.Format(Lang("RecentHeaderFiltered", player.Id), matched.Count - start, matched.Count, filter, LogLineCapacity)
+                : string.Format(Lang("RecentHeader", player.Id), matched.Count - start, matched.Count, LogLineCapacity);
+            lines.Add(header);
+            if (matched.Count == 0)
+                lines.Add(Lang("RecentEmpty", player.Id));
+            else
+                for (int i = start; i < matched.Count; i++)
+                    lines.Add($"  [{matched[i].At:HH:mm:ss}] {matched[i].Level}: {matched[i].Message}");
+            player.Reply(string.Join("\n", lines));
+        }
+
         private void CmdTest(IPlayer player, string[] args)
         {
             var bp = player.Object as BasePlayer;
@@ -4313,9 +4388,51 @@ namespace Oxide.Plugins
                 lines.Add(string.Format(Lang("TestContext", player.Id), ctx));
 
                 // Preview what rule fires against this entity as a victim from a real player attacker
-                var actionVsPlayer = ResolveRule(ctx, NpcCategory.RealPlayer, cat, null, sub != "<none>" ? sub : null);
-                var actionFromNpc  = ResolveRule(ctx, NpcCategory.HumanNpc, cat, null, sub != "<none>" ? sub : null);
-                lines.Add(string.Format(Lang("TestRuleAsVictim", player.Id), actionVsPlayer.Encode(), actionFromNpc.Encode()));
+                var victimSubArg = sub != "<none>" ? sub : null;
+                var actionVsPlayer = ResolveRule(ctx, NpcCategory.RealPlayer, cat, null, victimSubArg);
+                var actionFromNpc  = ResolveRule(ctx, NpcCategory.HumanNpc, cat, null, victimSubArg);
+                // v2.0.5 - {0} is now the victim category (e.g. "Building"), {1}/{2} the
+                // resolved actions. Previously the lang string used {0} for both the label
+                // and the action which rendered as "block_victim = 'block'" - confusing
+                // gibberish when admins were trying to read off the matched rule.
+                lines.Add(string.Format(Lang("TestRuleAsVictim", player.Id), cat, actionVsPlayer.Encode(), actionFromNpc.Encode()));
+
+                // v2.0.5 - simulate what would actually happen at runtime when the
+                // testing player attacks this entity. Mirrors the override chain in
+                // HandleViaRuleMatrix lines 1196-1228 (foreign-structure-reflect,
+                // NeverReflectStructureDamage kill-switch) so the admin sees the
+                // FINAL action, not just the raw rule lookup.
+                if ((cat == NpcCategory.Building || cat == NpcCategory.Deployable) && ent is BaseCombatEntity bceTarget)
+                {
+                    bool authed = IsAttackerAuthorizedOnStructure(bp, bceTarget);
+                    string finalAction = actionVsPlayer.Encode();
+                    string reason = "rule";
+                    if (actionVsPlayer is AllowAction
+                        && _config.ReflectPlayerDamageToForeignStructures
+                        && !_yieldToTruePve
+                        && !authed)
+                    {
+                        if (_config.ReflectPvpEnabled)
+                        {
+                            finalAction = $"reflect:{_config.ReflectMultiplier:F2}";
+                            reason = "foreign-structure-reflect override (you are not authorized)";
+                        }
+                        else if (_config.BlockPvpIfNotReflecting)
+                        {
+                            finalAction = "block";
+                            reason = "foreign-structure override -> block (ReflectPvpEnabled=false)";
+                        }
+                    }
+                    if (_config.NeverReflectStructureDamage && finalAction.StartsWith("reflect"))
+                    {
+                        finalAction = "block";
+                        reason = "NeverReflectStructureDamage kill-switch";
+                    }
+                    string ownerStr = bceTarget.OwnerID == 0UL ? "<unowned>" : bceTarget.OwnerID.ToString();
+                    string authStr = authed ? "AUTHORIZED on this structure" : "NOT authorized on this structure";
+                    lines.Add(string.Format(Lang("TestStructureAuth", player.Id), authStr, ownerStr));
+                    lines.Add(string.Format(Lang("TestFinalAction", player.Id), finalAction, reason));
+                }
             }
             else if (cat == NpcCategory.HumanNpc || cat == NpcCategory.AnimalNpc || cat == NpcCategory.VehicleNpc)
             {
@@ -4480,7 +4597,7 @@ namespace Oxide.Plugins
                 ["NoPermission"]    = "You do not have permission to use this command.",
                 ["ConfigReloaded"]  = "PVEDamageGuard config reloaded.",
                 ["ConfigReloadedWithIssues"] = "PVEDamageGuard config reloaded with {0} validation issue(s). Run /pdg validate for details.",
-                ["UsageRoot"]       = "Usage: /pdg [reload | log | logfile | scale | hour | context | history | test | preset | import | validate | events | webhook | timing | selftest | cache | ui | close | help]",
+                ["UsageRoot"]       = "Usage: /pdg [reload | log | logfile | scale | hour | context | history | recent | test | preset | import | validate | events | webhook | timing | selftest | cache | ui | close | help]",
                 ["PresetUsage"]     = "Usage: /pdg preset <name>. Available presets: {0}.",
                 ["PresetUnknown"]   = "Unknown preset '{0}'. Available: {1}.",
                 ["PresetApplied"]   = "Applied preset '{0}'. Config saved and reloaded. Review with /pdg status.",
@@ -4488,7 +4605,7 @@ namespace Oxide.Plugins
                 ["ImportDone"]      = "Damage Control import complete. Imported: {0}, skipped: {1}.",
                 ["ValidateClean"]   = "Config validation passed. No issues found.",
                 ["ValidateIssues"]  = "Config validation found {0} issue(s):",
-                ["HelpRoot"]        = "PVEDamageGuard subcommands. Use /pdg help <subcommand> for details on each:\n  reload   - reload config from disk\n  log      - set console log verbosity\n  logfile  - toggle file logging\n  scale    - tune NPC->Player damage multiplier\n  hour     - show current hour and TOD multipliers\n  context  - show active rule-matrix context\n  history  - show recent classified hits\n  test     - aim and classify, or 'test fire <type> <amount>' to dry-run\n  preset   - apply a known-good preset config\n  import   - import from Damage Control config\n  validate - check config for issues\n  help     - this help",
+                ["HelpRoot"]        = "PVEDamageGuard subcommands. Use /pdg help <subcommand> for details on each:\n  reload   - reload config from disk\n  log      - set console log verbosity\n  logfile  - toggle file logging\n  scale    - tune NPC->Player damage multiplier\n  hour     - show current hour and TOD multipliers\n  context  - show active rule-matrix context\n  history  - show recent classified hits\n  recent   - dump last N log lines from the in-memory ring buffer (with optional filter)\n  test     - aim and classify, or 'test fire <type> <amount>' to dry-run\n  preset   - apply a known-good preset config\n  import   - import from Damage Control config\n  validate - check config for issues\n  help     - this help",
                 ["HelpReload"]      = "/pdg reload - reload config and lang from disk, re-run validation. Equivalent to oxide.reload PVEDamageGuard.",
                 ["HelpLog"]         = "/pdg log <level> - set log verbosity. Levels: None (silent), Reflects (only PvP reflects), Scaled (every modified hit), All (also passthroughs), Trace (full HitInfo dump). Example: /pdg log Reflects",
                 ["HelpLogFile"]     = "/pdg logfile <on|off> - toggle whether log lines are also written to oxide/logs/PVEDamageGuard/damage-YYYY-MM-DD.txt. Example: /pdg logfile on",
@@ -4514,6 +4631,10 @@ namespace Oxide.Plugins
                 ["ContextRuleMatrixDisabled"] = "Rule matrix is disabled in config (RuleMatrix.Enabled=false). No context is currently active.",
                 ["ContextReport"]   = "Active context at your position: '{0}' (default fallback: '{1}'). Active tracked events: {2}.",
                 ["HistoryHeader"]   = "Showing last {0} of {1} hits (buffer capacity {2}):",
+                ["RecentHeader"]    = "Showing last {0} of {1} log lines (buffer capacity {2}):",
+                ["RecentHeaderFiltered"] = "Showing last {0} of {1} log lines matching '{2}' (buffer capacity {3}):",
+                ["RecentEmpty"]     = "  (no log lines match)",
+                ["HelpRecent"]      = "/pdg recent [N] [filter] - show last N log lines from the in-memory ring buffer, optionally filtered by substring. Default N=20, max 100. Filter is case-insensitive substring match against the message. Examples: /pdg recent 50 reflect (last 50 reflect events), /pdg recent unauthorized (recent unauthorized hits).",
                 ["TestOnlyInGame"]  = "/pdg test must be run by an in-game player.",
                 ["TestNoHit"]       = "/pdg test: raycast hit nothing within 250m.",
                 ["TestNoEntity"]    = "/pdg test: raycast hit a surface but no game entity.",
@@ -4521,7 +4642,8 @@ namespace Oxide.Plugins
                 ["TestDistance"]    = "Distance: {0:F1}m",
                 ["TestHour"]        = "Hour: {0} ({1}). Global TOD multiplier: {2:F2}x",
                 ["TestContext"]     = "Active context: '{0}'",
-                ["TestRuleAsVictim"] = "Rules at this context: RealPlayer -> {0}_victim = '{0}', HumanNpc -> {0}_victim = '{1}'",
+                ["TestRuleAsVictim"] = "Rules at this context: RealPlayer -> {0} = '{1}', HumanNpc -> {0} = '{2}'",
+                ["TestFinalAction"]  = "Final action if you attack this entity right now: {0}   (reason: {1})",
                 ["TestRuleNpcAttacker"] = "If this entity damages a player: NPC->Player scaling (Default {0:F2}x) * NpcToPlayer TOD ({1:F2}x) * Global TOD ({2:F2}x). If it damages a structure: attacker struct scaling {3:F2}x * NpcToStructure TOD ({4:F2}x).",
                 ["TestRulePvp"]     = "If you damage this player: Reflect={0} ({1:F2}x), BlockIfNotReflecting={2}, YieldToTruePVE={3}, PvP TOD={4:F2}x",
                 ["TestRuleBuilding"]= "If an NPC damages this building: NpcToStructure default {0:F2}x, Building grade multiplier {1:F2}x (grade={2}).",
