@@ -2,6 +2,30 @@
 
 All notable changes to PVEDamageGuard are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning is [SemVer](https://semver.org/).
 
+## [2.0.4] - 2026-05-19
+
+Two issues surfaced from a production trace log on a busy PVE server:
+
+1. **Players were taking unattributed damage** that the plugin logged as `env-passthrough` because `info.Initiator` was null. Sources: helicopter / Bradley crash explosions, `NTeleportation` /home into geometry, plugins calling `BasePlayer.Hurt(amount, DamageType.Generic, null)`. The plugin's `info.Initiator == null || rootAttacker == null` short-circuit treated every one of these as environmental and passed them through at full vanilla damage.
+2. **`OnEntityTakeDamage` hook took 456ms** on at least one call (logged as `Calling 'OnEntityTakeDamage' on 'PVEDamageGuard v2.0.3' took 456ms [GARBAGE COLLECT]`). Root cause: the v2.0.2 auth-check rewrite walks `Building.buildingPrivileges` via reflection, and each privilege's `authorizedPlayers` via more reflection, on every `RealPlayer -> Building/Deployable` hit. Reflection lookups were unbounded — every hit re-resolved the same `FieldInfo`/`PropertyInfo`.
+
+### Fixed
+
+- **Split the `env-passthrough` guard into two cases.** True environmental damage (in `EnvironmentalDamageTypes`) still passes through. Null-Initiator non-environmental damage now logs as `unattributed-passthrough` and — when the new `BlockUnattributedDamageToPlayers` flag is on and the victim is a `RealPlayer` — logs as `unattributed-player-damage-blocked` and returns `true` to abort the hit. Catches heli/Bradley crash, teleport-into-geometry, and plugin-induced `BasePlayer.Hurt(..., null)` damage.
+- **Cached the reflection lookups** for `Building.buildingPrivileges` / `Building.privileges` and `BuildingPrivlidge.authorizedPlayers`. Three new static per-Type caches (`_buildingPrivAccessor`, `_authListAccessor`, `_authElementUserId`) resolve the `FieldInfo`/`PropertyInfo` exactly once per .NET type, then invoke a cached `Func<object, ...>` on every subsequent hit. Hot-path reflection cost drops from O(reflection-per-hit) to O(delegate-call-per-hit).
+
+### Added
+
+- **`BlockUnattributedDamageToPlayers` config flag** (default `false` for backward compatibility). When `true`, any damage event where `info.Initiator == null` AND the major damage type isn't in `EnvironmentalDamageTypes` AND the victim is a `RealPlayer` is blocked. Recommended on strict-PVE servers where the rule "PVEDamageGuard should know who hit me, or no damage" is acceptable.
+- **`/pdg preset pvelockdown`** now sets `BlockUnattributedDamageToPlayers = true` so the preset captures the full strict-PVE intent.
+- **Player display name in damage log lines.** When the victim or attacker is a real player, the log now shows `RealPlayer(player/Cerberus)` instead of just `RealPlayer(player)`, so admins can correlate damage events to specific players without cross-referencing Steam IDs.
+
+### Notes
+
+- **Heli crash explosions still arrive with `info.Initiator == null`.** Facepunch's `PatrolHelicopterAI.OnDeath()` spawns timed crash scripts that explode several seconds later, and the `creatorEntity` chain is severed by then. We considered adding a "recently-destroyed VehicleNpc nearby" lookup, but a positional radius check on every null-Initiator hit would re-introduce the perf problem we just fixed. The opt-in block flag is the more reliable answer for strict-PVE.
+- **Existing servers see no behavior change** unless they set `BlockUnattributedDamageToPlayers: true` (or run `/pdg preset pvelockdown`). The log line for these hits renames from `env-passthrough` to `unattributed-passthrough` — same passthrough, more accurate name.
+- **If you're still on v2.0.3 and seeing the 456ms hook warning,** the v2.0.4 reflection cache should drop typical hits back under 1ms even on the largest bases. Watch for the warning to disappear after upgrade.
+
 ## [2.0.3] - 2026-05-19
 
 Hotfix on top of 2.0.2.
