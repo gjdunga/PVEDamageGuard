@@ -15,7 +15,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("PVE Damage Guard", "Gabriel Dungan (DunganSoft Technologies)", "2.0.3")]
+    [Info("PVE Damage Guard", "Gabriel Dungan (DunganSoft Technologies)", "2.0.4")]
     [Description("Future-proof NPC classifier, declarative rule matrix, per-attacker/per-victim damage scaling, time-of-day modifiers, ZoneManager / RaidableBases / Convoy / Armored Train context switching, reflect-as-a-service, Discord webhook output, Damage Control config import, preset configurations, config validation, classification cache, hook timing telemetry, Carbon framework support, in-game CUI admin panel with live-streaming Logging and paginated History tabs, per-player damage statistics, and per-event context overrides for PVE Rust servers.")]
     public class PVEDamageGuard : CovalencePlugin
     {
@@ -306,6 +306,15 @@ namespace Oxide.Plugins
             public bool AllowTeammateDamage = false;
 
             public bool ReflectPlayerDamageToForeignStructures = true;
+
+            // v2.0.4 - when true, damage events where info.Initiator and info.Weapon are both
+            // null - so the plugin can't identify a hostile attacker - get blocked outright
+            // for RealPlayer victims. Catches helicopter / Bradley crash explosions, /home
+            // teleport-into-geometry damage, and plugin-induced Hurt() calls that don't
+            // attribute to an attacker. Environmental damage (fall / cold / bleed / etc.)
+            // is still allowed because it's matched by EnvironmentalDamageTypes first.
+            // Default false for backward compatibility; set true on strict-PVE servers.
+            public bool BlockUnattributedDamageToPlayers = false;
 
             public Dictionary<string, float> NpcToPlayerScaling = new Dictionary<string, float>
             {
@@ -1105,9 +1114,29 @@ namespace Oxide.Plugins
                 return null;
             }
 
-            if (info.Initiator == null || rootAttacker == null || IsEnvironmental(info))
+            // True environmental damage (fall / cold / radiation / bleed / etc.) is in
+            // EnvironmentalDamageTypes and always passes through.
+            if (IsEnvironmental(info))
             {
                 LogHit(LogLevel.All, "env-passthrough", info, entity, attackerCat, victimCat, null, "passthrough");
+                return null;
+            }
+
+            // v2.0.4 - null-Initiator non-environmental damage. Heli/Bradley crash explosions,
+            // /teleport into geometry, plugin-induced damage (admin.kill, anti-cheat slap, etc.)
+            // all arrive with Initiator=null Weapon=null and a non-environmental damage type
+            // (Generic, Explosion, Bullet). The plugin previously treated these as passthrough
+            // and applied them at full vanilla damage. On a strict-PVE server the player
+            // expectation is "if PVEDamageGuard can't identify a hostile attacker, don't hurt me".
+            // BlockUnattributedDamageToPlayers (default false for backward compat) opts into that.
+            if (info.Initiator == null || rootAttacker == null)
+            {
+                if (victimCat == NpcCategory.RealPlayer && _config.BlockUnattributedDamageToPlayers)
+                {
+                    LogHit(LogLevel.Scaled, "unattributed-player-damage-blocked", info, entity, attackerCat, victimCat, null, "block");
+                    return true;
+                }
+                LogHit(LogLevel.All, "unattributed-passthrough", info, entity, attackerCat, victimCat, null, "passthrough");
                 return null;
             }
 
@@ -3129,6 +3158,7 @@ namespace Oxide.Plugins
                     _config.BlockPvpIfNotReflecting = true;
                     _config.AllowTeammateDamage = false;
                     _config.ReflectPlayerDamageToForeignStructures = true;
+                    _config.BlockUnattributedDamageToPlayers = true; // v2.0.4 - block heli/Bradley crash, teleport-into-geometry, plugin-induced null-Initiator damage
                     _config.NpcToPlayerScaling = new Dictionary<string, float>
                     {
                         ["Default"] = 0.25f, ["Bullet"] = 0.1f, ["Slash"] = 0.25f, ["Stab"] = 0.25f,
@@ -3577,22 +3607,15 @@ namespace Oxide.Plugins
             // 2) Walk the parent Building's full TC set, if reachable. The reflection
             //    isolates us from Building-API renames; we want any field/property
             //    on the Building that yields an IEnumerable of BuildingPrivlidge.
+            //    v2.0.4 - reflection lookups are cached per-Type. Without this, every
+            //    Player -> Building hit spent ~10-50ms on reflection; on a busy server
+            //    the OnEntityTakeDamage hook was timing out at 456ms.
             try
             {
                 var building = bb.GetBuilding();
                 if (building == null) return false;
 
-                var bt = building.GetType();
-                System.Collections.IEnumerable list = null;
-                // Try common names: buildingPrivileges, decayEntities (we'll filter),
-                // privileges. List<BuildingPrivlidge> is the expected shape.
-                foreach (var memberName in new[] { "buildingPrivileges", "privileges" })
-                {
-                    var f = bt.GetField(memberName);
-                    if (f != null) { list = f.GetValue(building) as System.Collections.IEnumerable; if (list != null) break; }
-                    var p = bt.GetProperty(memberName);
-                    if (p != null) { list = p.GetValue(building) as System.Collections.IEnumerable; if (list != null) break; }
-                }
+                var list = GetBuildingPrivilegeList(building);
                 if (list == null) return false;
 
                 foreach (var entry in list)
@@ -3605,39 +3628,95 @@ namespace Oxide.Plugins
             return false;
         }
 
+        // v2.0.4 - per-Type cache of the Building.buildingPrivileges (or .privileges)
+        // accessor. Lookup happens once per Building Type instead of once per hit.
+        // Stores a Func that returns the IEnumerable or null. Marker for "no match".
+        private static readonly Dictionary<Type, Func<object, System.Collections.IEnumerable>> _buildingPrivAccessor
+            = new Dictionary<Type, Func<object, System.Collections.IEnumerable>>();
+        private static readonly Func<object, System.Collections.IEnumerable> _noBuildingPrivAccessor = _ => null;
+
+        private System.Collections.IEnumerable GetBuildingPrivilegeList(object building)
+        {
+            if (building == null) return null;
+            var bt = building.GetType();
+            if (!_buildingPrivAccessor.TryGetValue(bt, out var accessor))
+            {
+                accessor = _noBuildingPrivAccessor;
+                foreach (var memberName in new[] { "buildingPrivileges", "privileges" })
+                {
+                    var f = bt.GetField(memberName);
+                    if (f != null) { accessor = obj => f.GetValue(obj) as System.Collections.IEnumerable; break; }
+                    var p = bt.GetProperty(memberName);
+                    if (p != null) { accessor = obj => p.GetValue(obj) as System.Collections.IEnumerable; break; }
+                }
+                _buildingPrivAccessor[bt] = accessor;
+            }
+            return accessor(building);
+        }
+
         // v2.0.2 - explicit auth-list scan that handles both List<ulong> and
         // List<PlayerNameID> via type-check on each element. Quiet-fails to false
         // on unknown element shapes instead of letting a silent miscompare claim
         // the player isn't authorized.
+        // v2.0.4 - reflection lookups for the authorizedPlayers field/property and
+        // for each element's userid field/property are cached per-Type.
+        private static readonly Dictionary<Type, Func<object, System.Collections.IEnumerable>> _authListAccessor
+            = new Dictionary<Type, Func<object, System.Collections.IEnumerable>>();
+        private static readonly Dictionary<Type, Func<object, ulong>> _authElementUserId
+            = new Dictionary<Type, Func<object, ulong>>();
+        private static readonly Func<object, System.Collections.IEnumerable> _noAuthListAccessor = _ => null;
+        private static readonly Func<object, ulong> _noAuthElementUserId = _ => 0UL;
+
+        private static System.Collections.IEnumerable GetAuthorizedPlayersList(BuildingPrivlidge priv)
+        {
+            if (priv == null) return null;
+            var t = priv.GetType();
+            if (!_authListAccessor.TryGetValue(t, out var accessor))
+            {
+                accessor = _noAuthListAccessor;
+                var f = t.GetField("authorizedPlayers");
+                if (f != null) accessor = obj => f.GetValue(obj) as System.Collections.IEnumerable;
+                else
+                {
+                    var p = t.GetProperty("authorizedPlayers");
+                    if (p != null) accessor = obj => p.GetValue(obj) as System.Collections.IEnumerable;
+                }
+                _authListAccessor[t] = accessor;
+            }
+            return accessor(priv);
+        }
+
+        private static ulong GetAuthElementUserId(object item)
+        {
+            if (item == null) return 0UL;
+            if (item is ulong ul) return ul;
+            var t = item.GetType();
+            if (!_authElementUserId.TryGetValue(t, out var accessor))
+            {
+                accessor = _noAuthElementUserId;
+                var f = t.GetField("userid") ?? t.GetField("userId") ?? t.GetField("UserId") ?? t.GetField("UserID");
+                if (f != null) accessor = obj => f.GetValue(obj) is ulong uid ? uid : 0UL;
+                else
+                {
+                    var p = t.GetProperty("userid") ?? t.GetProperty("userId") ?? t.GetProperty("UserId") ?? t.GetProperty("UserID");
+                    if (p != null) accessor = obj => p.GetValue(obj) is ulong uid ? uid : 0UL;
+                }
+                _authElementUserId[t] = accessor;
+            }
+            return accessor(item);
+        }
+
         private bool IsAttackerOnPrivilege(BasePlayer attacker, BuildingPrivlidge priv)
         {
             if (priv == null || attacker == null) return false;
             ulong needle = attacker.userID;
             try
             {
-                // Use reflection to read the field/property without binding to a
-                // specific element type at compile time. Avoids `auth == attacker.userID`
-                // silently doing the wrong thing if the list element type drifts.
-                var listObj = priv.GetType().GetField("authorizedPlayers")?.GetValue(priv)
-                             ?? priv.GetType().GetProperty("authorizedPlayers")?.GetValue(priv);
-                if (!(listObj is System.Collections.IEnumerable seq)) return false;
+                var seq = GetAuthorizedPlayersList(priv);
+                if (seq == null) return false;
                 foreach (var item in seq)
                 {
-                    if (item == null) continue;
-                    ulong id = 0UL;
-                    if (item is ulong ul) id = ul;
-                    else
-                    {
-                        var t = item.GetType();
-                        // PlayerNameID has `userid` (ulong); some Rust builds use `userId` (PascalCase).
-                        var f = t.GetField("userid") ?? t.GetField("userId") ?? t.GetField("UserId") ?? t.GetField("UserID");
-                        if (f != null && f.GetValue(item) is ulong uid) id = uid;
-                        else
-                        {
-                            var p = t.GetProperty("userid") ?? t.GetProperty("userId") ?? t.GetProperty("UserId") ?? t.GetProperty("UserID");
-                            if (p != null && p.GetValue(item) is ulong uidp) id = uidp;
-                        }
-                    }
+                    var id = GetAuthElementUserId(item);
                     if (id != 0UL && id == needle) return true;
                 }
             }
@@ -3746,6 +3825,14 @@ namespace Oxide.Plugins
             // Always push to history (regardless of console log level) - it's a separate diagnostic
             var attackerName = info.Initiator?.ShortPrefabName ?? "<none>";
             var victimName   = entity.ShortPrefabName ?? "<none>";
+            // v2.0.4 - if the victim is a real player, include their displayName so admins
+            // can correlate damage events to specific players without having to cross-
+            // reference Steam IDs.
+            if (entity is BasePlayer vbp && !vbp.IsNpc)
+                victimName = $"{victimName}/{vbp.displayName}";
+            // Same for the attacker side.
+            if (info.Initiator is BasePlayer abp && !abp.IsNpc)
+                attackerName = $"{attackerName}/{abp.displayName}";
             var dmg          = info.damageTypes?.Total() ?? 0f;
             var major        = info.damageTypes?.GetMajorityDamageType() ?? DamageType.Generic;
 
