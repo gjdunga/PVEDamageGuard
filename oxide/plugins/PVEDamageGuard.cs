@@ -15,7 +15,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("PVE Damage Guard", "Gabriel Dungan (DunganSoft Technologies)", "2.0.1")]
+    [Info("PVE Damage Guard", "Gabriel Dungan (DunganSoft Technologies)", "2.0.2")]
     [Description("Future-proof NPC classifier, declarative rule matrix, per-attacker/per-victim damage scaling, time-of-day modifiers, ZoneManager / RaidableBases / Convoy / Armored Train context switching, reflect-as-a-service, Discord webhook output, Damage Control config import, preset configurations, config validation, classification cache, hook timing telemetry, Carbon framework support, in-game CUI admin panel with live-streaming Logging and paginated History tabs, per-player damage statistics, and per-event context overrides for PVE Rust servers.")]
     public class PVEDamageGuard : CovalencePlugin
     {
@@ -3105,6 +3105,55 @@ namespace Oxide.Plugins
                     if (_config.RuleMatrix != null) _config.RuleMatrix.Enabled = false;
                     break;
 
+                case "pvelockdown":
+                    // v2.0.2 - strict PVE: zero damage from any NPC/heli/Bradley to structures,
+                    // own-structure damage allowed, foreign-structure damage reflected back.
+                    // Use this when the v2.0 defaults (scale:0.5 on VehicleNpc -> Building)
+                    // still let helis chip your walls.
+                    _config.ReflectPvpEnabled = true;
+                    _config.ReflectMultiplier = 1.0f;
+                    _config.BlockPvpIfNotReflecting = true;
+                    _config.AllowTeammateDamage = false;
+                    _config.ReflectPlayerDamageToForeignStructures = true;
+                    _config.NpcToPlayerScaling = new Dictionary<string, float>
+                    {
+                        ["Default"] = 0.25f, ["Bullet"] = 0.1f, ["Slash"] = 0.25f, ["Stab"] = 0.25f,
+                        ["Bite"] = 0.25f, ["Blunt"] = 0.25f, ["Explosion"] = 0.25f, ["Arrow"] = 0.25f,
+                        ["Generic"] = 1.0f
+                    };
+                    _config.NpcToStructureScaling = 0f;
+                    _config.PerAttackerStructureScaling = new Dictionary<string, float>
+                    {
+                        ["Default"] = 0f,
+                        ["PatrolHelicopter"] = 0f,
+                        ["BradleyAPC"] = 0f
+                    };
+                    if (_config.RuleMatrix == null) _config.RuleMatrix = new RuleMatrixConfig();
+                    _config.RuleMatrix.Enabled = true;
+                    _config.RuleMatrix.DefaultContext = "Default";
+                    if (!_config.RuleMatrix.Contexts.ContainsKey("Default"))
+                        _config.RuleMatrix.Contexts["Default"] = new ContextConfig
+                        {
+                            Description = "Lockdown PVE - NPCs/helis cannot damage structures",
+                            Rules = new Dictionary<string, string>()
+                        };
+                    var dr = _config.RuleMatrix.Contexts["Default"].Rules;
+                    dr["RealPlayer -> RealPlayer"]   = "block";
+                    dr["RealPlayer -> Building"]     = "allow"; // foreign-structure reflect handles non-owners
+                    dr["RealPlayer -> Deployable"]   = "allow";
+                    dr["HumanNpc -> RealPlayer"]     = "scale:{Bullet:0.25,Default:0.5}";
+                    dr["AnimalNpc -> RealPlayer"]    = "scale:{Bite:0.5,Default:0.5}";
+                    dr["VehicleNpc -> RealPlayer"]   = "scale:{Bullet:0.25,Explosion:0.5}";
+                    dr["HumanNpc -> Building"]       = "block";
+                    dr["HumanNpc -> Deployable"]     = "block";
+                    dr["AnimalNpc -> Building"]      = "block";
+                    dr["AnimalNpc -> Deployable"]    = "block";
+                    dr["VehicleNpc -> Building"]     = "block";
+                    dr["VehicleNpc -> Deployable"]   = "block";
+                    dr["OwnedTrap -> RealPlayer"]    = "reflect:1.0";
+                    dr["Environment -> *"]           = "allow";
+                    break;
+
                 case "pvphoursevents":
                     _config.ReflectPvpEnabled = false;
                     _config.BlockPvpIfNotReflecting = true;
@@ -3145,7 +3194,7 @@ namespace Oxide.Plugins
             }
         }
 
-        private static readonly string[] _presetNames = { "pvepure", "pvereflect", "pvevehicleraids", "pvphoursevents" };
+        private static readonly string[] _presetNames = { "pvepure", "pvereflect", "pvevehicleraids", "pvphoursevents", "pvelockdown" };
 
         // Import from Damage Control - reads oxide/config/DamageControl.json, maps fields, applies.
         private (int imported, int skipped, List<string> report) ImportFromDamageControl()
@@ -3425,18 +3474,34 @@ namespace Oxide.Plugins
         // v1.7.1 - true if the attacker is allowed to damage this structure
         // (owns it, is on the owner's team, or is TC-authorized on the building).
         // Used to decide whether to reflect Player->Building/Deployable damage.
+        //
+        // v2.0.2 - rewritten to emit Trace-level diagnostics so admins can see
+        // exactly which path matched (owner / team / TC / fallback), and to walk
+        // the BuildingBlock's full Building aggregate when the immediate
+        // GetBuildingPrivilege returns nothing. Also handles the modern
+        // PlayerNameID-shaped authorizedPlayers list directly (no longer relying
+        // on a try/catch to detect the shape - some Rust builds let the wrong-type
+        // comparison silently fail-to-match instead of throwing).
         private bool IsAttackerAuthorizedOnStructure(BasePlayer attacker, BaseCombatEntity victim)
         {
-            if (attacker == null || victim == null) return false;
+            if (attacker == null || victim == null)
+            {
+                TraceAuth("attacker or victim null", attacker, victim, false);
+                return false;
+            }
 
             // Unowned structures (monuments, world spawns) are never reflected on damage.
             // OwnerID == 0 means no player owns this entity; treat as authorized so we
             // don't trip the reflect on monument crates / barrels / etc.
             ulong owner = victim.OwnerID;
-            if (owner == 0UL) return true;
+            if (owner == 0UL) { TraceAuth("victim.OwnerID == 0 (unowned)", attacker, victim, true); return true; }
 
             // Direct ownership
-            if (owner == attacker.userID) return true;
+            if (owner == attacker.userID)
+            {
+                TraceAuth($"owner == attacker.userID ({owner})", attacker, victim, true);
+                return true;
+            }
 
             // Team ownership
             if (attacker.currentTeam != 0UL)
@@ -3445,58 +3510,124 @@ namespace Oxide.Plugins
                 {
                     var team = RelationshipManager.ServerInstance?.FindTeam(attacker.currentTeam);
                     if (team != null && team.members != null && team.members.Contains(owner))
+                    {
+                        TraceAuth($"team {attacker.currentTeam} contains owner {owner}", attacker, victim, true);
                         return true;
+                    }
                 }
                 catch { /* tolerate API drift */ }
             }
 
-            // TC authorization for BuildingBlock victims.
-            // Modern Rust changed BuildingPrivlidge.authorizedPlayers from
-            // List<PlayerNameID> (legacy struct) to List<ulong> (steam IDs only).
-            // Direct ulong comparison works on current builds. If Facepunch
-            // ever reverts the type, the reflection fallback below catches it.
+            // TC authorization. v2.0.2: handle BuildingBlock by walking the building's
+            // full TC set, not just the single privilege returned by GetBuildingPrivilege.
+            // GetBuildingPrivilege can return null when the block sits at the edge of a
+            // building or between TCs; the player may still be authorized on a connected
+            // TC. Iterating buildingPrivileges of the parent Building covers that.
             if (victim is BuildingBlock bb)
             {
-                try
+                if (IsAttackerOnAnyBuildingPrivilege(attacker, bb))
                 {
-                    var priv = bb.GetBuildingPrivilege();
-                    if (priv != null && priv.authorizedPlayers != null)
-                    {
-                        foreach (var auth in priv.authorizedPlayers)
-                        {
-                            if (auth == attacker.userID) return true;
-                        }
-                    }
-                }
-                catch
-                {
-                    // Reflection fallback for unexpected API shapes
-                    try
-                    {
-                        var priv = bb.GetBuildingPrivilege();
-                        if (priv == null) return false;
-                        var listObj = priv.GetType().GetField("authorizedPlayers")?.GetValue(priv)
-                                     ?? priv.GetType().GetProperty("authorizedPlayers")?.GetValue(priv);
-                        if (listObj is System.Collections.IEnumerable seq)
-                        {
-                            foreach (var item in seq)
-                            {
-                                if (item == null) continue;
-                                ulong id = 0UL;
-                                if (item is ulong ul) id = ul;
-                                else
-                                {
-                                    var f = item.GetType().GetField("userid");
-                                    if (f != null && f.GetValue(item) is ulong uid) id = uid;
-                                }
-                                if (id == attacker.userID) return true;
-                            }
-                        }
-                    }
-                    catch { /* genuinely unsupported - fall through to false */ }
+                    TraceAuth("TC auth matched (one of building's TCs)", attacker, victim, true);
+                    return true;
                 }
             }
 
+            // Last-resort: Deployable victims sometimes share OwnerID with a teammate
+            // not in RelationshipManager (e.g., owner left team but kept perms). Skip.
+            TraceAuth($"no auth path matched (owner={owner}, attacker.userID={attacker.userID}, team={attacker.currentTeam})",
+                attacker, victim, false);
+            return false;
+        }
+
+        // v2.0.2 - log the auth decision when LogLevel >= Trace. Cheap when off.
+        private void TraceAuth(string reason, BasePlayer attacker, BaseCombatEntity victim, bool authorized)
+        {
+            if (_config == null || _config.Logging < LogLevel.Trace) return;
+            string aId = attacker?.userID.ToString() ?? "<null>";
+            string vId = victim?.OwnerID.ToString() ?? "<null>";
+            string vName = victim?.ShortPrefabName ?? "<null>";
+            Puts($"[Trace] auth-check: attacker={aId} victim={vName} ownerID={vId} -> {(authorized ? "AUTHORIZED" : "DENIED")} ({reason})");
+        }
+
+        // v2.0.2 - walk every BuildingPrivlidge attached to the BuildingBlock's parent
+        // Building. Returns true if any TC's authorizedPlayers list contains the
+        // attacker's userID. Handles both List<ulong> and List<PlayerNameID> shapes
+        // (current and prior Rust builds) via explicit type-check, not exception-driven.
+        private bool IsAttackerOnAnyBuildingPrivilege(BasePlayer attacker, BuildingBlock bb)
+        {
+            if (attacker == null || bb == null) return false;
+
+            // 1) The block's directly-resolved privilege (cheapest path)
+            if (IsAttackerOnPrivilege(attacker, bb.GetBuildingPrivilege())) return true;
+
+            // 2) Walk the parent Building's full TC set, if reachable. The reflection
+            //    isolates us from Building-API renames; we want any field/property
+            //    on the Building that yields an IEnumerable of BuildingPrivlidge.
+            try
+            {
+                var building = bb.GetBuilding();
+                if (building == null) return false;
+
+                var bt = building.GetType();
+                System.Collections.IEnumerable list = null;
+                // Try common names: buildingPrivileges, decayEntities (we'll filter),
+                // privileges. List<BuildingPrivlidge> is the expected shape.
+                foreach (var memberName in new[] { "buildingPrivileges", "privileges" })
+                {
+                    var f = bt.GetField(memberName);
+                    if (f != null) { list = f.GetValue(building) as System.Collections.IEnumerable; if (list != null) break; }
+                    var p = bt.GetProperty(memberName);
+                    if (p != null) { list = p.GetValue(building) as System.Collections.IEnumerable; if (list != null) break; }
+                }
+                if (list == null) return false;
+
+                foreach (var entry in list)
+                {
+                    if (entry is BuildingPrivlidge bp && IsAttackerOnPrivilege(attacker, bp)) return true;
+                }
+            }
+            catch { /* Building API drift - fall through to false */ }
+
+            return false;
+        }
+
+        // v2.0.2 - explicit auth-list scan that handles both List<ulong> and
+        // List<PlayerNameID> via type-check on each element. Quiet-fails to false
+        // on unknown element shapes instead of letting a silent miscompare claim
+        // the player isn't authorized.
+        private bool IsAttackerOnPrivilege(BasePlayer attacker, BuildingPrivlidge priv)
+        {
+            if (priv == null || attacker == null) return false;
+            ulong needle = attacker.userID;
+            try
+            {
+                // Use reflection to read the field/property without binding to a
+                // specific element type at compile time. Avoids `auth == attacker.userID`
+                // silently doing the wrong thing if the list element type drifts.
+                var listObj = priv.GetType().GetField("authorizedPlayers")?.GetValue(priv)
+                             ?? priv.GetType().GetProperty("authorizedPlayers")?.GetValue(priv);
+                if (!(listObj is System.Collections.IEnumerable seq)) return false;
+                foreach (var item in seq)
+                {
+                    if (item == null) continue;
+                    ulong id = 0UL;
+                    if (item is ulong ul) id = ul;
+                    else
+                    {
+                        var t = item.GetType();
+                        // PlayerNameID has `userid` (ulong); some Rust builds use `userId` (PascalCase).
+                        var f = t.GetField("userid") ?? t.GetField("userId") ?? t.GetField("UserId") ?? t.GetField("UserID");
+                        if (f != null && f.GetValue(item) is ulong uid) id = uid;
+                        else
+                        {
+                            var p = t.GetProperty("userid") ?? t.GetProperty("userId") ?? t.GetProperty("UserId") ?? t.GetProperty("UserID");
+                            if (p != null && p.GetValue(item) is ulong uidp) id = uidp;
+                        }
+                    }
+                    if (id != 0UL && id == needle) return true;
+                }
+            }
+            catch { /* unsupported shape - return false */ }
             return false;
         }
 
