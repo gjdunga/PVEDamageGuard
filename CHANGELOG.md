@@ -2,6 +2,19 @@
 
 All notable changes to PVEDamageGuard are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning is [SemVer](https://semver.org/).
 
+## [2.0.3] - 2026-05-19
+
+Hotfix on top of 2.0.2.
+
+### Fixed
+
+- **Self-damage was being treated as PvP in the rule-matrix path.** When a player shot their own wall and a few shotgun pellets / rocket-splash points / ricochets bounced back into their own hitbox, the `RealPlayer -> RealPlayer` rule fired on those self-hits. With a `reflect:2.0` rule the player ate ~3× their own splash — a single shot could drop them 100 → 52. The legacy v1.1 scaling path (`HandleViaScaling`) has carried an explicit `rootAttacker != entity` self-exclusion since v1.7.1; the rule-matrix path (`HandleViaRuleMatrix`) did not. Now it does. Self hits log as `self-damage-passthrough` and fall through to vanilla self-damage, never amplified.
+
+### Notes
+
+- No config changes required. Existing `RealPlayer -> RealPlayer: reflect:N` rules now work the way the legacy path always did - PvP only, not self-PvP.
+- The `OnEntityTakeDamageInner` re-entrancy guard (`_reflectInFlight`) prevented infinite loops but did not prevent the first reflect from firing on self-damage. That's the gap this commit closes.
+
 ## [2.0.2] - 2026-05-19
 
 Two reported gameplay bugs surfaced after the v2.0.1 deployment:

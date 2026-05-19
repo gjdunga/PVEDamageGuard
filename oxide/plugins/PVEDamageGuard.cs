@@ -15,7 +15,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("PVE Damage Guard", "Gabriel Dungan (DunganSoft Technologies)", "2.0.2")]
+    [Info("PVE Damage Guard", "Gabriel Dungan (DunganSoft Technologies)", "2.0.3")]
     [Description("Future-proof NPC classifier, declarative rule matrix, per-attacker/per-victim damage scaling, time-of-day modifiers, ZoneManager / RaidableBases / Convoy / Armored Train context switching, reflect-as-a-service, Discord webhook output, Damage Control config import, preset configurations, config validation, classification cache, hook timing telemetry, Carbon framework support, in-game CUI admin panel with live-streaming Logging and paginated History tabs, per-player damage statistics, and per-event context overrides for PVE Rust servers.")]
     public class PVEDamageGuard : CovalencePlugin
     {
@@ -1145,6 +1145,20 @@ namespace Oxide.Plugins
             if (_yieldToTruePve && attackerCat == NpcCategory.RealPlayer && victimCat == NpcCategory.RealPlayer)
             {
                 LogHit(LogLevel.All, "pvp-yielded-to-truepve", info, entity, attackerCat, victimCat, context, "yield");
+                return null;
+            }
+
+            // v2.0.3 - self-damage exclusion. The rule-matrix path (unlike the legacy
+            // scaling path at HandleViaScaling line 1397) was treating self-inflicted
+            // damage - shotgun pellets ricocheting off your own wall, rocket splash on
+            // yourself, F1 grenade in hand - as PvP and applying the
+            // `RealPlayer -> RealPlayer` reflect rule on top. With reflect:2.0 the
+            // player ate 3x their own damage. Mirror the legacy guard here so self
+            // hits never resolve via the PvP rule.
+            if (attackerCat == NpcCategory.RealPlayer && victimCat == NpcCategory.RealPlayer
+                && rootAttacker == entity)
+            {
+                LogHit(LogLevel.All, "self-damage-passthrough", info, entity, attackerCat, victimCat, context, "passthrough");
                 return null;
             }
 
