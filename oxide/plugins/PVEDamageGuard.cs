@@ -2806,7 +2806,7 @@ namespace Oxide.Plugins
             var p = arg.Player();
             if (p == null) return;
             if (!HasUiPerm(p)) return;
-            var tab = arg.Args != null && arg.Args.Length > 0 ? arg.Args[0] : "status";
+            var tab = arg.Args != null && arg.Args.Length > 0 ? arg.Args[0].ToString() : "status";
             ShowPanel(p, tab);
         }
 
@@ -2826,7 +2826,7 @@ namespace Oxide.Plugins
             if (p == null) return;
             if (!HasUiPerm(p)) return;
             if (arg.Args == null || arg.Args.Length == 0) return;
-            if (!Enum.TryParse<LogLevel>(arg.Args[0], true, out var level)) return;
+            if (!Enum.TryParse<LogLevel>(arg.Args[0].ToString(), true, out var level)) return;
             _uiLogFilter[p.userID] = level;
             ShowPanel(p, "logging");
         }
@@ -2839,8 +2839,8 @@ namespace Oxide.Plugins
             if (p == null) return;
             if (!HasUiPerm(p)) return;
             if (arg.Args == null || arg.Args.Length < 2) return;
-            var field = arg.Args[0];
-            if (!float.TryParse(arg.Args[1], System.Globalization.NumberStyles.Float,
+            var field = arg.Args[0].ToString();
+            if (!float.TryParse(arg.Args[1].ToString(), System.Globalization.NumberStyles.Float,
                                 System.Globalization.CultureInfo.InvariantCulture, out var delta)) return;
 
             // Apply the delta to the named field; clamp to [0, 100]
@@ -2876,7 +2876,7 @@ namespace Oxide.Plugins
             if (p == null) return;
             if (!HasUiPerm(p)) return;
             if (arg.Args == null || arg.Args.Length < 1) return;
-            switch (arg.Args[0])
+            switch (arg.Args[0].ToString())
             {
                 case "ReflectPvpEnabled":                       _config.ReflectPvpEnabled = !_config.ReflectPvpEnabled; break;
                 case "BlockPvpIfNotReflecting":                 _config.BlockPvpIfNotReflecting = !_config.BlockPvpIfNotReflecting; break;
@@ -2887,7 +2887,7 @@ namespace Oxide.Plugins
                     _config.YieldToTruePVE = !_config.YieldToTruePVE;
                     DetectCompanions(); // recompute _yieldToTruePve
                     break;
-                default: PrintWarning($"pdgui.toggle: unknown field '{arg.Args[0]}'"); return;
+                default: PrintWarning($"pdgui.toggle: unknown field '{arg.Args[0].ToString()}'"); return;
             }
             SaveConfig();
             RebuildCaches();
@@ -2902,8 +2902,8 @@ namespace Oxide.Plugins
             if (p == null) return;
             if (!HasUiPerm(p)) return;
             if (arg.Args == null || arg.Args.Length < 2) return;
-            var field = arg.Args[0];
-            var value = arg.Args[1];
+            var field = arg.Args[0].ToString();
+            var value = arg.Args[1].ToString();
             switch (field)
             {
                 case "Logging":
@@ -2941,9 +2941,9 @@ namespace Oxide.Plugins
             if (p == null) return;
             if (!HasUiPerm(p)) return;
             if (arg.Args == null || arg.Args.Length < 2) return;
-            var contextName = arg.Args[0];
+            var contextName = arg.Args[0].ToString();
             // The rule key may contain spaces; we passed it URL-encoded as args[1..]
-            var ruleKey = string.Join(" ", arg.Args, 1, arg.Args.Length - 1);
+            var ruleKey = string.Join(" ", arg.Args.Skip(1).Select(sv => sv.ToString()));
             if (_config.RuleMatrix == null || !_config.RuleMatrix.Contexts.TryGetValue(contextName, out var ctx) || ctx.Rules == null) return;
             if (!ctx.Rules.TryGetValue(ruleKey, out var current)) return;
             // Cycle
@@ -2968,8 +2968,8 @@ namespace Oxide.Plugins
             if (p == null) return;
             if (!HasUiPerm(p)) return;
             if (arg.Args == null || arg.Args.Length < 2) return;
-            var contextName = arg.Args[0];
-            var ruleKey = string.Join(" ", arg.Args, 1, arg.Args.Length - 1);
+            var contextName = arg.Args[0].ToString();
+            var ruleKey = string.Join(" ", arg.Args.Skip(1).Select(sv => sv.ToString()));
             if (_config.RuleMatrix == null || !_config.RuleMatrix.Contexts.TryGetValue(contextName, out var ctx) || ctx.Rules == null) return;
             if (ctx.Rules.Remove(ruleKey))
             {
@@ -2987,7 +2987,7 @@ namespace Oxide.Plugins
             if (p == null) return;
             if (!HasUiPerm(p)) return;
             if (arg.Args == null || arg.Args.Length == 0) return;
-            var name = arg.Args[0];
+            var name = arg.Args[0].ToString();
             if (_config.RuleMatrix?.Contexts != null && _config.RuleMatrix.Contexts.ContainsKey(name))
                 _uiRulesContext[p.userID] = name;
             ShowPanel(p, "rules");
@@ -3003,7 +3003,7 @@ namespace Oxide.Plugins
             if (arg.Args == null || arg.Args.Length == 0) return;
             int page;
             _uiHistoryPage.TryGetValue(p.userID, out page);
-            switch (arg.Args[0].ToLowerInvariant())
+            switch (arg.Args[0].ToString().ToLowerInvariant())
             {
                 case "next": page += 1; break;
                 case "prev": page -= 1; break;
