@@ -2,6 +2,30 @@
 
 All notable changes to PVEDamageGuard are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning is [SemVer](https://semver.org/).
 
+## [2.0.6] - 2026-06-06
+
+Build-compatibility hotfix for the current Facepunch/Oxide release. A user reported the plugin failing to compile with:
+
+```
+Failed to compile: Argument 2: cannot convert from 'Facepunch.StringView' to 'string' | Line: 2810, Pos: 26
+```
+
+A recent Facepunch update changed `ConsoleSystem.Arg.Args[]` to return `Facepunch.StringView` (a struct view over the underlying string buffer) instead of `string`. `StringView` has no implicit conversion to `string`, so every console-command handler that read `arg.Args[i]` and passed it where a `string` was expected stopped compiling. The first such site is the `pdgui.tab` handler at line 2810, but the same break exists across all 12 `pdgui.*` console handlers added in v1.7-v1.9.
+
+### Fixed
+
+- **`Facepunch.StringView` → `string` compile error across all console-command handlers.** Every `arg.Args[i]` read now calls `.ToString()` to materialize the `StringView` into a `string` before it is used as a switch value, dictionary key, `Enum.TryParse`/`float.TryParse` input, or interpolated into a log message. Affected handlers: `pdgui.tab`, `pdgui.loglevel`, `pdgui.scalemod`, `pdgui.toggle`, `pdgui.dropdown`, `pdgui.ruleaction`, `pdgui.ruledel`, `pdgui.rulesctx`, `pdgui.histpage`.
+- **`string.Join(" ", arg.Args, 1, n)` replaced with a LINQ projection.** The `(string, string[], int, int)` overload no longer applies now that `arg.Args` is a `StringView[]`; the rule-key reassembly in `pdgui.ruleaction` / `pdgui.ruledel` now uses `arg.Args.Skip(1).Select(sv => sv.ToString())` so spaces in rule keys still round-trip correctly.
+
+### Added
+
+- **`.github/workflows/release.yml` — automated draft releases.** Pushing a `v*.*.*` tag now triggers a GitHub Action (`softprops/action-gh-release@v2`) that creates a **draft** GitHub Release, attaches `oxide/plugins/PVEDamageGuard.cs`, and auto-generates release notes from the commits since the previous tag. Cutting a release is now: bump the version, push the tag, review the auto-drafted notes, publish.
+
+### Notes
+
+- **No behavior change.** This release is purely a compile fix plus CI tooling; the runtime logic, config schema, and public API are identical to v2.0.5. Servers already running v2.0.5 on an older Rust build that compiled fine do not need to act, but upgrading is safe and recommended — the `.ToString()` calls are correct on both old and new builds.
+- **Why it only broke now.** Older Rust/Oxide builds exposed `arg.Args` as `string[]`, so the implicit-string usage compiled. The `StringView` change is an allocation optimization on Facepunch's side; `.ToString()` is the supported way to get a `string` back out of it.
+
 ## [2.0.5] - 2026-05-19
 
 Another iteration on "damage to walls reflects to the player" - this time the focus is admin-visibility rather than another speculative behavior change. A user reported in production that `/pdg test` showed `RealPlayer -> Building` resolved to `'block'` yet wall hits were still bouncing back at the player. Walking through the screenshots revealed two distinct problems:
