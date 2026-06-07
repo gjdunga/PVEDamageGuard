@@ -24,3 +24,8 @@ oxide/logs/
 
 # Local-only override (never committed)
 oxide/config/PVEDamageGuard.local.json
+
+# Compile-chain reference assemblies (downloaded; proprietary game files)
+/references/
+/.steamcmd/
+*.log
