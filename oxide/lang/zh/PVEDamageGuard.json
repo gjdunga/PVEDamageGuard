@@ -101,5 +101,9 @@
   "RulesInheritedHeader": "继承规则 (未被覆盖):",
   "CategoriesNone":      "未注册自定义 NPC 类别。其他插件可通过 API_RegisterCategory 注册。",
   "CategoriesList":      "已注册 {0} 个自定义 NPC 类别: {1}",
-  "StatusBlock":    "PVE Damage Guard v{0}\n  反射: {1} ({2:F2}x), 无反射时阻挡: {3}, 队友: {4}\n  NPC->玩家 默认: {5:F2}, NPC->结构 默认: {6:F2}, 陷阱视为PvP: {7}\n  日志: {8} (文件={9}), 让步TruePVE: {10}, Discord webhook: {22}\n  功能: TOD={11}, VictimSubtype={12}, BuildingGrade={13}, PerAttackerStruct={14}, RuleMatrix={15}\n  时段: {16} ({17}), 事件: {18} 实体 / {20} 圆顶 / {21} 全局, 配置问题: {19}\n  命令: /pdg reload | log | logfile | scale | hour | context | history | test | preset | import | validate | events | webhook | timing | selftest | cache | help"
+  "StatusBlock":    "PVE Damage Guard v{0}\n  反射: {1} ({2:F2}x), 无反射时阻挡: {3}, 队友: {4}\n  NPC->玩家 默认: {5:F2}, NPC->结构 默认: {6:F2}, 陷阱视为PvP: {7}\n  日志: {8} (文件={9}), 让步TruePVE: {10}, Discord webhook: {22}\n  功能: TOD={11}, VictimSubtype={12}, BuildingGrade={13}, PerAttackerStruct={14}, RuleMatrix={15}\n  时段: {16} ({17}), 事件: {18} 实体 / {20} 圆顶 / {21} 全局, 配置问题: {19}\n  命令: /pdg reload | log | logfile | scale | hour | context | history | test | preset | import | validate | events | webhook | timing | selftest | cache | help",
+  "HelpRecent": "/pdg recent [N] [filter] - 显示内存环形缓冲区中最近 N 行日志，可选按子串过滤。默认 N=20，最大 100。过滤为不区分大小写的子串匹配。示例：/pdg recent 50 reflect（最近 50 次反射事件），/pdg recent unauthorized（最近的未授权命中）。",
+  "RecentEmpty": "  （没有匹配的日志行）",
+  "RecentHeader": "显示最近 {0} 行（共 {1} 行）日志（缓冲区容量 {2}）：",
+  "RecentHeaderFiltered": "显示匹配 '{2}' 的最近 {0} 行（共 {1} 行）日志（缓冲区容量 {3}）："
 }

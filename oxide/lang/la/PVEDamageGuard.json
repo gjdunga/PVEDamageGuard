@@ -100,5 +100,9 @@
   "RulesInheritedHeader": "Regulae hereditariae (non superatae):",
   "CategoriesNone":      "Nullae categoriae NPC propriae registratae. Alii plugini registrant via API_RegisterCategory.",
   "CategoriesList":      "{0} categoria(e) NPC propria(e) registrata(e): {1}",
-  "StatusBlock":    "PVE Damage Guard v{0}\n  Reflexio: {1} ({2:F2}x), ImpedirePvPSineReflexio: {3}, Socii: {4}\n  NPC->Lusor praedef: {5:F2}, NPC->Aedificium praedef: {6:F2}, Insidiae ut PvP: {7}\n  Diarium: {8} (tabella={9}), Cedere TruePVE: {10}, Webhook Discord: {22}\n  Functiones: TOD={11}, VictimSubtype={12}, BuildingGrade={13}, PerAttackerStruct={14}, RuleMatrix={15}\n  Hora praesens: {16} ({17}), Eventus: {18} ent / {20} cup / {21} glob, Problemata config: {19}\n  Mandata: /pdg reload | log | logfile | scale | hour | context | history | test | preset | import | validate | events | webhook | help"
+  "StatusBlock":    "PVE Damage Guard v{0}\n  Reflexio: {1} ({2:F2}x), ImpedirePvPSineReflexio: {3}, Socii: {4}\n  NPC->Lusor praedef: {5:F2}, NPC->Aedificium praedef: {6:F2}, Insidiae ut PvP: {7}\n  Diarium: {8} (tabella={9}), Cedere TruePVE: {10}, Webhook Discord: {22}\n  Functiones: TOD={11}, VictimSubtype={12}, BuildingGrade={13}, PerAttackerStruct={14}, RuleMatrix={15}\n  Hora praesens: {16} ({17}), Eventus: {18} ent / {20} cup / {21} glob, Problemata config: {19}\n  Mandata: /pdg reload | log | logfile | scale | hour | context | history | test | preset | import | validate | events | webhook | help",
+  "HelpRecent": "/pdg recent [N] [filter] - postremas N lineas diarii ex anulari memoria monstrat, libenter per particulam excerptas. Implicite N=20, summum 100. Filtrum litteras maiusculas minusculasque non distinguit. Exempla: /pdg recent 50 reflect (postremi L eventus reflexionis), /pdg recent unauthorized (recentes ictus illiciti).",
+  "RecentEmpty": "  (nullae lineae diarii congruunt)",
+  "RecentHeader": "Monstrans postremas {0} ex {1} lineis diarii (capacitas anuli {2}):",
+  "RecentHeaderFiltered": "Monstrans postremas {0} ex {1} lineis diarii '{2}' congruentibus (capacitas anuli {3}):"
 }

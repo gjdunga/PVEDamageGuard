@@ -100,5 +100,9 @@
   "RulesInheritedHeader": "Унаследованные правила (не переопределённые):",
   "CategoriesNone":      "Пользовательские категории NPC не зарегистрированы. Плагины регистрируют через API_RegisterCategory.",
   "CategoriesList":      "Зарегистрировано {0} пользовательских категорий NPC: {1}",
-  "StatusBlock":    "PVE Damage Guard v{0}\n  Отражение: {1} ({2:F2}x), БлокPvPбезОтражения: {3}, Союзники: {4}\n  NPC->Игрок по умолч: {5:F2}, NPC->Постройка по умолч: {6:F2}, Ловушки как PvP: {7}\n  Логирование: {8} (файл={9}), Уступать TruePVE: {10}, Discord вебхук: {22}\n  Возможности: TOD={11}, VictimSubtype={12}, BuildingGrade={13}, PerAttackerStruct={14}, RuleMatrix={15}\n  Текущий час: {16} ({17}), События: {18} сущ / {20} куп / {21} глоб, Проблемы конфига: {19}\n  Команды: /pdg reload | log | logfile | scale | hour | context | history | test | preset | import | validate | events | webhook | help"
+  "StatusBlock":    "PVE Damage Guard v{0}\n  Отражение: {1} ({2:F2}x), БлокPvPбезОтражения: {3}, Союзники: {4}\n  NPC->Игрок по умолч: {5:F2}, NPC->Постройка по умолч: {6:F2}, Ловушки как PvP: {7}\n  Логирование: {8} (файл={9}), Уступать TruePVE: {10}, Discord вебхук: {22}\n  Возможности: TOD={11}, VictimSubtype={12}, BuildingGrade={13}, PerAttackerStruct={14}, RuleMatrix={15}\n  Текущий час: {16} ({17}), События: {18} сущ / {20} куп / {21} глоб, Проблемы конфига: {19}\n  Команды: /pdg reload | log | logfile | scale | hour | context | history | test | preset | import | validate | events | webhook | help",
+  "HelpRecent": "/pdg recent [N] [filter] - показать последние N строк журнала из кольцевого буфера в памяти, при необходимости отфильтрованные по подстроке. По умолчанию N=20, макс. 100. Фильтр ищет подстроку без учёта регистра. Примеры: /pdg recent 50 reflect (последние 50 событий отражения), /pdg recent unauthorized (недавние несанкционированные попадания).",
+  "RecentEmpty": "  (нет совпадающих строк журнала)",
+  "RecentHeader": "Показаны последние {0} из {1} строк журнала (ёмкость буфера {2}):",
+  "RecentHeaderFiltered": "Показаны последние {0} из {1} строк журнала, совпадающих с '{2}' (ёмкость буфера {3}):"
 }
