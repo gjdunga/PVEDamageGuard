@@ -2,6 +2,17 @@
 
 All notable changes to PVEDamageGuard are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning is [SemVer](https://semver.org/).
 
+## [2.0.7] - 2026-06-06
+
+### Localization
+- Standardized the Simplified Chinese locale folder from `zh` to `zh-CN` so the
+  plugin ships a consistent eight-locale set: `en`, `es`, `ru`, `la`, `zh-CN`, `de`,
+  `fr`, `pt`.
+- Removed the orphan `_note` key from the `de`, `fr`, `pt`, and `zh-CN` locale files
+  so every locale mirrors the registered message set exactly (106 keys each).
+
+No gameplay, configuration, hook, or data-format changes.
+
 ## [2.0.6] - 2026-06-06
 
 Build-compatibility hotfix for the current Facepunch/Oxide release. A user reported the plugin failing to compile with:
