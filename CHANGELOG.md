@@ -2,6 +2,17 @@
 
 All notable changes to PVEDamageGuard are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning is [SemVer](https://semver.org/).
 
+## [2.0.8] - 2026-06-07
+
+### Changed (DunganSoft Plugin Standard)
+- Adopted the shared [DunganSoft Plugin Standard](https://github.com/gjdunga/rust-plugin-standard)
+  (marketplace profile, `umod: false`): unified `manifest.json` + `.umod.yaml` to the
+  canonical schema (`author_handle`, structured `permissions`/`commands`/`links`;
+  `framework`/`compatible_frameworks` retained for Carbon), added `CONTRIBUTING.md`,
+  `SECURITY.md`, `.editorconfig`, `.gitattributes`, and vendored
+  `tools/check-standard.py` + a `standards.yml` CI gate. License remains GPL-3.0;
+  Reflection and file I/O are retained (allowed off-uMod). No gameplay or rule changes.
+
 ## [2.0.7] - 2026-06-06
 
 ### Localization

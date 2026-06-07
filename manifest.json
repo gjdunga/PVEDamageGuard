@@ -1,16 +1,51 @@
 {
   "name": "PVEDamageGuard",
   "title": "PVE Damage Guard",
-  "version": "2.0.7",
-  "description": "Future-proof Rust NPC classifier, per-attacker damage scaling, and reflect-as-a-service for PVE servers. TruePVE companion.",
+  "version": "2.0.8",
   "author": "Gabriel Dungan (DunganSoft Technologies)",
+  "author_handle": "gjdunga",
+  "description": "Future-proof Rust NPC classifier, per-attacker damage scaling, and reflect-as-a-service for PVE servers. TruePVE companion.",
   "license": "GPL-3.0",
-  "url": "https://github.com/gjdunga/PVEDamageGuard",
-  "tags": ["pve", "damage", "npc", "classifier", "reflect", "truepve-companion"],
   "game": "rust",
+  "language": "csharp",
+  "tags": [
+    "pve",
+    "damage",
+    "npc",
+    "classifier",
+    "reflect",
+    "truepve-companion"
+  ],
+  "permissions": [
+    {
+      "name": "pvedamageguard.admin",
+      "description": "Use the /pdg admin commands and the in-game CUI admin panel."
+    },
+    {
+      "name": "pvedamageguard.bypass",
+      "description": "Exempt the holder from PVE Damage Guard's damage rules."
+    }
+  ],
+  "commands": [
+    {
+      "command": "pdg",
+      "arguments": "<status|reload|validate|recent|test|ui|...>",
+      "description": "Admin: status, config reload/validate, recent-log tail, classification test, and the CUI admin panel."
+    }
+  ],
+  "compatibility": {
+    "oxide_minimum": "2.0.0",
+    "oxide_verified": "2.0.7423"
+  },
   "framework": "oxide",
-  "compatible_frameworks": ["oxide", "carbon"],
-  "minimum_oxide_version": "2.0.0",
-  "main": "oxide/plugins/PVEDamageGuard.cs",
-  "languages": ["en", "ru", "es", "la"]
+  "compatible_frameworks": [
+    "oxide",
+    "carbon"
+  ],
+  "links": {
+    "source": "https://github.com/gjdunga/PVEDamageGuard",
+    "documentation": "https://github.com/gjdunga/PVEDamageGuard#readme",
+    "issues": "https://github.com/gjdunga/PVEDamageGuard/issues",
+    "website": "https://github.com/gjdunga/PVEDamageGuard"
+  }
 }
