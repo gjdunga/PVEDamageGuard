@@ -100,5 +100,9 @@
   "RulesInheritedHeader": "Reglas heredadas (no sobrescritas):",
   "CategoriesNone":      "No hay categorías NPC personalizadas registradas. Otros plugins registran via API_RegisterCategory.",
   "CategoriesList":      "{0} categoría(s) NPC personalizada(s) registrada(s): {1}",
-  "StatusBlock":    "PVE Damage Guard v{0}\n  Reflejo: {1} ({2:F2}x), BloqPvPSinReflejo: {3}, Compañeros: {4}\n  NPC->Jugador pred: {5:F2}, NPC->Estructura pred: {6:F2}, Trampas como PvP: {7}\n  Registro: {8} (archivo={9}), Ceder a TruePVE: {10}, Webhook Discord: {22}\n  Funciones: TOD={11}, VictimSubtype={12}, BuildingGrade={13}, PerAttackerStruct={14}, RuleMatrix={15}\n  Hora actual: {16} ({17}), Eventos: {18} ent / {20} cup / {21} glob, Problemas config: {19}\n  Comandos: /pdg reload | log | logfile | scale | hour | context | history | test | preset | import | validate | events | webhook | help"
+  "StatusBlock":    "PVE Damage Guard v{0}\n  Reflejo: {1} ({2:F2}x), BloqPvPSinReflejo: {3}, Compañeros: {4}\n  NPC->Jugador pred: {5:F2}, NPC->Estructura pred: {6:F2}, Trampas como PvP: {7}\n  Registro: {8} (archivo={9}), Ceder a TruePVE: {10}, Webhook Discord: {22}\n  Funciones: TOD={11}, VictimSubtype={12}, BuildingGrade={13}, PerAttackerStruct={14}, RuleMatrix={15}\n  Hora actual: {16} ({17}), Eventos: {18} ent / {20} cup / {21} glob, Problemas config: {19}\n  Comandos: /pdg reload | log | logfile | scale | hour | context | history | test | preset | import | validate | events | webhook | help",
+  "HelpRecent": "/pdg recent [N] [filter] - muestra las últimas N líneas de registro del búfer circular en memoria, opcionalmente filtradas por subcadena. Predeterminado N=20, máx. 100. El filtro busca subcadenas sin distinguir mayúsculas. Ejemplos: /pdg recent 50 reflect (últimos 50 eventos de reflexión), /pdg recent unauthorized (impactos no autorizados recientes).",
+  "RecentEmpty": "  (no hay líneas de registro coincidentes)",
+  "RecentHeader": "Mostrando las últimas {0} de {1} líneas de registro (capacidad del búfer {2}):",
+  "RecentHeaderFiltered": "Mostrando las últimas {0} de {1} líneas de registro que coinciden con '{2}' (capacidad del búfer {3}):"
 }
