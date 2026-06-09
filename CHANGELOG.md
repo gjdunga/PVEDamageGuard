@@ -2,6 +2,15 @@
 
 All notable changes to PVEDamageGuard are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning is [SemVer](https://semver.org/).
 
+## [3.0.0] - 2026-06-09
+
+### Changed
+- Version aligned to a whole-number release (2.0.8 -> 3.0.0). No functional changes.
+
+### Security
+- Release is code-signed: a detached OpenPGP signature (`PVEDamageGuard.cs.asc`) and the public
+  key (`gjdunga.asc`) are attached and verifiable.
+
 ## [2.0.8] - 2026-06-07
 
 ### Changed (DunganSoft Plugin Standard)
