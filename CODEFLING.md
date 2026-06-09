@@ -47,6 +47,17 @@ Future-proof Rust NPC classifier, per-attacker damage scaling, and reflect-as-a-
 2. Upload it to `oxide/plugins/PVEDamageGuard.cs` on your server.
 3. The plugin compiles and loads automatically; a default config is written to `oxide/config/PVEDamageGuard.json` on first load.
 
+## Verifying the download
+
+This plugin is **code-signed**. Every release attaches a detached OpenPGP signature (`PVEDamageGuard.cs.asc`) and the public key (`gjdunga.asc`):
+
+```bash
+gpg --import gjdunga.asc   # fingerprint EAC0A2AE65CC6C9762DD6AF06877843761D5C6E6
+gpg --verify PVEDamageGuard.cs.asc PVEDamageGuard.cs
+```
+
+Expect: `Good signature from "Gabriel Dungan <gjdunga@gmail.com>"`.
+
 ## What's new in 2.0.8
 
 ### Changed (DunganSoft Plugin Standard)
