@@ -1,7 +1,7 @@
 {
   "name": "PVEDamageGuard",
   "title": "PVE Damage Guard",
-  "version": "2.0.8",
+  "version": "3.0.0",
   "author": "Gabriel Dungan (DunganSoft Technologies)",
   "author_handle": "gjdunga",
   "description": "Future-proof Rust NPC classifier, per-attacker damage scaling, and reflect-as-a-service for PVE servers. TruePVE companion.",
