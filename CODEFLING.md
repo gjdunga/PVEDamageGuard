@@ -5,7 +5,7 @@
 > the screenshots and confirm the price before publishing. Regenerate on each release.
 
 - **Title:** PVE Damage Guard
-- **Version:** 2.0.8
+- **Version:** 3.0.0
 - **Price:** Free
 - **Tags:** pve, damage, npc, classifier, reflect, truepve-companion
 - **Compatibility:** Oxide **2.0.0+** (verified 2.0.7423) · also supports **Carbon**
@@ -58,16 +58,14 @@ gpg --verify PVEDamageGuard.cs.asc PVEDamageGuard.cs
 
 Expect: `Good signature from "Gabriel Dungan <gjdunga@gmail.com>"`.
 
-## What's new in 2.0.8
+## What's new in 3.0.0
 
-### Changed (DunganSoft Plugin Standard)
-- Adopted the shared [DunganSoft Plugin Standard](https://github.com/gjdunga/rust-plugin-standard)
-  (marketplace profile, `umod: false`): unified `manifest.json` + `.umod.yaml` to the
-  canonical schema (`author_handle`, structured `permissions`/`commands`/`links`;
-  `framework`/`compatible_frameworks` retained for Carbon), added `CONTRIBUTING.md`,
-  `SECURITY.md`, `.editorconfig`, `.gitattributes`, and vendored
-  `tools/check-standard.py` + a `standards.yml` CI gate. License remains GPL-3.0;
-  Reflection and file I/O are retained (allowed off-uMod). No gameplay or rule changes.
+### Changed
+- Version aligned to a whole-number release (2.0.8 -> 3.0.0). No functional changes.
+
+### Security
+- Release is code-signed: a detached OpenPGP signature (`PVEDamageGuard.cs.asc`) and the public
+  key (`gjdunga.asc`) are attached and verifiable.
 
 ## Links
 
