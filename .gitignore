@@ -29,3 +29,6 @@ oxide/config/PVEDamageGuard.local.json
 /references/
 /.steamcmd/
 *.log
+
+# local upload-staging artifacts (not shipped)
+dist/
