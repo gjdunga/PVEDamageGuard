@@ -2,6 +2,20 @@
 
 All notable changes to PVEDamageGuard are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning is [SemVer](https://semver.org/).
 
+## [3.0.1] - 2026-06-11
+
+### Fixed
+- Bradley (and patrol-heli) event damage to players was zeroed out under strict-PVE
+  configs that enable `BlockUnattributedDamageToPlayers` (e.g. the `pvelockdown`
+  preset). A `maincannonshell` explosion frequently arrives with `Initiator=null`
+  and no creator chain back to the tank, so the unattributed-damage block fired
+  *before* the hit's already-resolved `VehicleNpc` classification (from the
+  `WeaponPrefab` match) was honored. The block now skips munitions that
+  `LooksLikeVehicleNpcWeapon` has already attributed to a vehicle NPC, so Bradley/heli
+  event damage flows through the normal `VehicleNpc -> RealPlayer` scaling exactly as
+  it does when the shell's initiator resolves. Genuine vehicle *crash* explosions
+  (`WeaponPrefab=null`) remain covered by the unattributed block.
+
 ## [3.0.0] - 2026-06-09
 
 ### Changed
