@@ -15,7 +15,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("PVE Damage Guard", "Gabriel Dungan (DunganSoft Technologies)", "3.0.0")]
+    [Info("PVE Damage Guard", "Gabriel Dungan (DunganSoft Technologies)", "3.0.1")]
     [Description("Future-proof NPC classifier, declarative rule matrix, per-attacker/per-victim damage scaling, time-of-day modifiers, ZoneManager / RaidableBases / Convoy / Armored Train context switching, reflect-as-a-service, Discord webhook output, Damage Control config import, preset configurations, config validation, classification cache, hook timing telemetry, Carbon framework support, in-game CUI admin panel with live-streaming Logging and paginated History tabs, per-player damage statistics, and per-event context overrides for PVE Rust servers.")]
     public class PVEDamageGuard : CovalencePlugin
     {
@@ -1138,7 +1138,21 @@ namespace Oxide.Plugins
             // and applied them at full vanilla damage. On a strict-PVE server the player
             // expectation is "if PVEDamageGuard can't identify a hostile attacker, don't hurt me".
             // BlockUnattributedDamageToPlayers (default false for backward compat) opts into that.
-            if (info.Initiator == null || rootAttacker == null)
+            //
+            // v3.0.1 - exclude already-attributed vehicle-NPC munitions. A Bradley
+            // maincannonshell (or heli rocket) explosion frequently arrives with
+            // Initiator=null and no creator chain back to the vehicle, so rootAttacker
+            // is null - BUT LooksLikeVehicleNpcWeapon above has already positively
+            // identified the WeaponPrefab and forced attackerCat=VehicleNpc. That IS a
+            // hostile attribution. Falling into the block path here zeroed Bradley event
+            // damage to players whenever BlockUnattributedDamageToPlayers was on (e.g. the
+            // pvelockdown preset). Skip the unattributed handling for VehicleNpc and let
+            // the hit flow to the normal VehicleNpc -> RealPlayer scaling/rule path, so it
+            // behaves identically to the case where the shell's initiator did resolve.
+            // Genuine crash explosions still have WeaponPrefab=null (LooksLikeVehicleNpcWeapon
+            // returns false), so they remain covered by the block below.
+            if ((info.Initiator == null || rootAttacker == null)
+                && attackerCat != NpcCategory.VehicleNpc)
             {
                 if (victimCat == NpcCategory.RealPlayer && _config.BlockUnattributedDamageToPlayers)
                 {
